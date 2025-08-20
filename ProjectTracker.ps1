@@ -341,23 +341,19 @@ $ProjectDetailWindowXaml = @'
         Title="Project Details" Height="700" Width="900"
         Background="{DynamicResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13"
         WindowStartupLocation="CenterOwner">
-  <DockPanel Margin="10">
-    <Menu DockPanel.Dock="Top">
-      <MenuItem x:Name="ExportWordMenuItem" Header="Export to Word"/>
-    </Menu>
-    <Grid>
-      <!-- 1) Top‑level row definitions -->
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>   <!-- Project info -->
-        <RowDefinition Height="Auto"/>   <!-- Attachments -->
-        <RowDefinition Height="Auto"/>   <!-- New entry inputs -->
-        <RowDefinition Height="*"/>      <!-- Work log list -->
-        <RowDefinition Height="Auto"/>   <!-- Remove update button -->
-        <RowDefinition Height="Auto"/>   <!-- Buttons: Delete, Save, Cancel -->
-      </Grid.RowDefinitions>
+  <Grid Margin="10">
+    <!-- 1) Top‑level row definitions -->
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>   <!-- Project info -->
+      <RowDefinition Height="Auto"/>   <!-- Attachments -->
+      <RowDefinition Height="Auto"/>   <!-- New entry inputs -->
+      <RowDefinition Height="*"/>      <!-- Work log list -->
+      <RowDefinition Height="Auto"/>   <!-- Remove update button -->
+      <RowDefinition Height="Auto"/>   <!-- Buttons: Delete, Save, Cancel -->
+    </Grid.RowDefinitions>
 
-      <!-- 2) Project Information Section -->
-      <Grid Grid.Row="0" Margin="0,0,0,10">
+    <!-- 2) Project Information Section -->
+    <Grid Grid.Row="0" Margin="0,0,0,10">
       <!-- 2a) Nested row+column definitions go first -->
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/> <!-- Ticket number -->
@@ -477,15 +473,14 @@ $ProjectDetailWindowXaml = @'
     <Button Grid.Row="4" x:Name="RemoveEntryButton" Content="Remove" Margin="0,0,0,10" Padding="10,5" HorizontalAlignment="Right"/>
 
     <!-- 7) Buttons Section -->
-     <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Stretch">
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Stretch">
       <Button x:Name="DeleteProjectButton" Content="Delete Project" Margin="0,0,10,0" Padding="10,5" HorizontalAlignment="Left"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="SaveButton"   Content="Save"   Margin="5,0,0,0" Padding="10,5"/>
         <Button x:Name="CancelButton" Content="Cancel" Margin="5,0,0,0" Padding="10,5" IsCancel="True"/>
       </StackPanel>
     </StackPanel>
-    </Grid>
-  </DockPanel>
+  </Grid>
 </Window>
 '@
 # 1. Load Required Assemblies & Hide Console
@@ -1061,89 +1056,6 @@ function Save-ProjectToJson {
     }
 }
 
-function Export-ProjectToWord {
-    param($project)
-    Write-Log 'DEBUG' 'Entered Export-ProjectToWord' @{ Id = $project.Id }
-    $word = $null
-    $doc  = $null
-    try {
-        try {
-            $word = New-Object -ComObject Word.Application -ErrorAction Stop
-        }
-        catch {
-            Write-Log 'ERROR' 'Word COM object creation failed' @{ Error = $_.Exception.Message }
-            [System.Windows.MessageBox]::Show(
-                'Microsoft Word is required to export.',
-                'Export Error',
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            ) | Out-Null
-            return
-        }
-
-        $word.Visible = $false
-        $doc = $word.Documents.Add()
-        $sel = $word.Selection
-
-        # Heading
-        $sel.Style = 'Heading 1'
-        $sel.TypeText($project.Name)
-        $sel.TypeParagraph()
-
-        # Metadata
-        $sel.Style = 'Normal'
-        $sel.Font.Bold = 1; $sel.TypeText('Ticket #: '); $sel.Font.Bold = 0; $sel.TypeText($project.Number); $sel.TypeParagraph()
-        $sel.Font.Bold = 1; $sel.TypeText('Status: '); $sel.Font.Bold = 0; $sel.TypeText($project.Status); $sel.TypeParagraph()
-        if ($project.Subject) { $sel.Font.Bold = 1; $sel.TypeText('Subject: '); $sel.Font.Bold = 0; $sel.TypeText($project.Subject); $sel.TypeParagraph() }
-        if ($project.CreationDate) { $sel.Font.Bold = 1; $sel.TypeText('Created: '); $sel.Font.Bold = 0; $sel.TypeText(([DateTime]$project.CreationDate).ToString('d')); $sel.TypeParagraph() }
-
-        # Work log table
-        $sel.TypeParagraph()
-        $sel.Style = 'Heading 2'
-        $sel.TypeText('Work Log')
-        $sel.TypeParagraph()
-
-        $entries = @($project.WorkLog)
-        $rows = $entries.Count + 1
-        $table = $doc.Tables.Add($sel.Range, [int]$rows, 4)
-        $table.Cell(1,1).Range.Text = 'Date'
-        $table.Cell(1,2).Range.Text = 'Subject'
-        $table.Cell(1,3).Range.Text = 'Description'
-        $table.Cell(1,4).Range.Text = 'Rank / Name'
-        $table.Rows.Item(1).Range.Bold = $true
-        $r = 2
-        foreach ($e in $entries) {
-            $table.Cell($r,1).Range.Text = ([DateTime]$e.Timestamp).ToString('g')
-            $table.Cell($r,2).Range.Text = $e.Subject
-            $table.Cell($r,3).Range.Text = $e.Description
-            $table.Cell($r,4).Range.Text = $e.Duration
-            $r++
-        }
-
-        Add-Type -AssemblyName System.Windows.Forms
-        $dlg = New-Object System.Windows.Forms.SaveFileDialog
-        $dlg.Filter = 'Word Document (*.docx)|*.docx'
-        $dlg.FileName = "$($project.Name).docx"
-        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $doc.SaveAs([ref]$dlg.FileName) | Out-Null
-            Write-Log 'INFO' 'Project exported to Word' @{ Id = $project.Id; Path = $dlg.FileName }
-        }
-    }
-    catch {
-        Write-Log 'ERROR' 'Exception in Export-ProjectToWord' @{ Error = $_.Exception.Message }
-        [System.Windows.MessageBox]::Show(
-            'Failed to export project to Word.',
-            'Export Error',
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        ) | Out-Null
-    }
-    finally {
-        if ($doc) { $doc.Close([ref]$false) }
-        if ($word) { $word.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) }
-    }
-}
-
 function Get-NextTicketNumber {
  
 
@@ -1256,31 +1168,6 @@ function Remove-ProjectFromJson {
     }
     finally {
         $m.ReleaseMutex(); $m.Dispose()
-    }
-}
-
-function Export-ProjectToWord {
-    param($project)
-
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName Microsoft.Office.Interop.Word
-
-    $word = New-Object -ComObject Word.Application
-    $doc  = $null
-    try {
-        $doc = $word.Documents.Add()
-        $doc.Content.Text = $project.Name
-
-        $dlg = New-Object System.Windows.Forms.SaveFileDialog
-        $dlg.Filter   = "Word Documents (*.docx)|*.docx|All Files (*.*)|*.*"
-        $dlg.FileName = "${($project.Name)}.docx"
-        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $doc.SaveAs([ref]$dlg.FileName, [ref][Microsoft.Office.Interop.Word.WdSaveFormat]::wdFormatXMLDocument) | Out-Null
-        }
-    }
-    finally {
-        if ($doc) { $doc.Close() | Out-Null }
-        $word.Quit()
     }
 }
 
@@ -1597,7 +1484,6 @@ function Show-ProjectDetailWindow {
     $SaveBtn       = $win.FindName("SaveButton")
     $CancelBtn     = $win.FindName("CancelButton")
     $DeleteProjBtn = $win.FindName("DeleteProjectButton")
-    $ExportWordMenuItem = $win.FindName("ExportWordMenuItem")
 
     # Populate fields
     if ($project.PSObject.Properties['Number']) {
@@ -1705,28 +1591,6 @@ function Show-ProjectDetailWindow {
             $full = Join-Path (Split-Path $DataFile) $sel
             Start-Process $full
         }
-    })
-
-    # Export to Word
-    $ExportWordMenuItem.Add_Click({
-        $tmp = [PSCustomObject]@{
-            Id           = $project.Id
-            Number       = $NumberBlock.Text
-            Name         = $NameBox.Text
-            Status       = $StatusBox.Text
-            Subject      = $SubjectBox.Text
-            CreationDate = $project.CreationDate
-            WorkLog      = @()
-        }
-        foreach ($item in $LogListView.Items) {
-            $tmp.WorkLog += [PSCustomObject]@{
-                Timestamp   = [DateTime]$item.Timestamp
-                Subject     = $item.Subject
-                Description = $item.Description
-                Duration    = $item.Duration
-            }
-        }
-        Export-ProjectToWord $tmp
     })
 
     # Delete project
