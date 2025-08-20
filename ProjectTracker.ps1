@@ -624,15 +624,15 @@ $DarkStylesXaml = @'
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Base brushes for dark theme -->
-    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#4A4A4A"/>
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#2B2B2B"/>
     <SolidColorBrush x:Key="ContentBackgroundBrush" Color="#4A4A4A"/>
     <SolidColorBrush x:Key="BorderBrushColor" Color="#3C3C50"/>
     <SolidColorBrush x:Key="PrimaryForegroundBrush" Color="White"/>
     <SolidColorBrush x:Key="GrayNumberBrush" Color="#F1F1F1"/>
-    <SolidColorBrush x:Key="SurfaceOfTile" Color= "#5C5C5C"/>
-    <SolidColorBrush x:Key="NotStartedTile" Color= "#FF6B6B"/>
-    <SolidColorBrush x:Key="OngoingTile" Color= "#FFD166"/>
-    <SolidColorBrush x:Key="CompleteTile" Color= "#4ECDC4"/>
+    <SolidColorBrush x:Key="SurfaceOfTile" Color= "#4B4B4B"/>
+    <SolidColorBrush x:Key="NotStartedTile" Color= "#FF1A1A"/>
+    <SolidColorBrush x:Key="OngoingTile" Color= "#FEE75C"/>
+    <SolidColorBrush x:Key="CompleteTile" Color= "#57F287"/>
 
 
     <!-- Default text color -->
