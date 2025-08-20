@@ -478,6 +478,7 @@ $ProjectDetailWindowXaml = @'
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="SaveButton"   Content="Save"   Margin="5,0,0,0" Padding="10,5"/>
         <Button x:Name="CancelButton" Content="Cancel" Margin="5,0,0,0" Padding="10,5" IsCancel="True"/>
+        <Button x:Name="TransferTicketButton" Content="Transfer Ticket" Margin="5,0,0,0" Padding="10,5"/>
       </StackPanel>
     </StackPanel>
   </Grid>
@@ -1484,6 +1485,7 @@ function Show-ProjectDetailWindow {
     $SaveBtn       = $win.FindName("SaveButton")
     $CancelBtn     = $win.FindName("CancelButton")
     $DeleteProjBtn = $win.FindName("DeleteProjectButton")
+    $TransferBtn   = $win.FindName("TransferTicketButton")
 
     # Populate fields
     if ($project.PSObject.Properties['Number']) {
@@ -1608,6 +1610,47 @@ function Show-ProjectDetailWindow {
             Remove-ProjectFromJson $project
             $win.DialogResult = $true
             $win.Close()
+        }
+    })
+
+    # Transfer project
+    $TransferBtn.Add_Click({
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $destFile = $dlg.FileName
+            $origFile = $DataFile
+            $m = New-Object System.Threading.Mutex($false, $mutexName)
+            try {
+                if (-not $m.WaitOne(5000)) {
+                    Write-Log 'WARN' 'Timeout acquiring transfer mutex' @{ Mutex = $mutexName }
+                    return
+                }
+                $DataFile = $destFile
+                Save-ProjectToJson $project
+                $DataFile = $origFile
+                Remove-ProjectFromJson $project
+                $ProjectsCollection.Remove($project)
+                Sync-ProjectsFromJson
+                foreach ($rel in $project.Attachments) {
+                    $src = Join-Path (Split-Path $origFile) $rel
+                    $dst = Join-Path (Split-Path $destFile) $rel
+                    $dstDir = Split-Path $dst
+                    if (-not (Test-Path $dstDir)) { New-Item -Path $dstDir -ItemType Directory | Out-Null }
+                    if (Test-Path $src) { Move-Item -Path $src -Destination $dst -Force }
+                }
+                Write-Log 'INFO' 'Project transferred' @{ Id = $project.Id; Destination = $destFile }
+                $win.DialogResult = $true
+                $win.Close()
+            }
+            catch {
+                Write-Log 'ERROR' 'Failed to transfer project' @{ Id = $project.Id; Error = $_.Exception.Message }
+            }
+            finally {
+                $DataFile = $origFile
+                $m.ReleaseMutex(); $m.Dispose()
+            }
         }
     })
 
