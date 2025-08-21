@@ -200,12 +200,10 @@ $MainWindowXaml = @'
                     <WrapPanel/>
                 </ItemsPanelTemplate>
             </ListBox.ItemsPanel>
-            <ListBox.Resources>␊
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"
-                                 Color="{DynamicResource SelectionBackgroundBrushColor}"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}"
-                                 Color="{DynamicResource SelectionForegroundBrushColor}"/>
-            </ListBox.Resources>␊
+            <ListBox.Resources>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"     Color="#FF0078D7"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White"/>
+            </ListBox.Resources>
              <ListBox.GroupStyle>
   <GroupStyle>
     <GroupStyle.HeaderTemplate>
@@ -382,19 +380,12 @@ $ProjectDetailWindowXaml = @'
                Padding="4"/>
 
       <!-- Status -->
-      <TextBlock Text="Status:" Grid.Row="2" Grid.Column="0" Margin="0,0,5,5" VerticalAlignment="Center"/>
-      <Border Grid.Row="2" Grid.Column="1"
-              CornerRadius="4"
-              BorderBrush="{DynamicResource BorderBrushColor}"
-              BorderThickness="1"
-              Background="{DynamicResource WindowBackgroundBrush}"
-              Margin="0,0,0,5"
-              Padding="2">
-        <ComboBox x:Name="StatusComboBox"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  Padding="3"/>
-      </Border>
+<TextBlock Text="Status:" Grid.Row="2" Grid.Column="0" Margin="0,0,5,5" VerticalAlignment="Center"/>
+<ComboBox x:Name="StatusComboBox"
+          Grid.Row="2" Grid.Column="1"
+          Margin="0,0,0,5"/>
+
+
 
       <!-- Subject -->
       <TextBlock Text="Subject:" Grid.Row="3" Grid.Column="0" Margin="0,0,5,5" VerticalAlignment="Center"/>
@@ -406,23 +397,16 @@ $ProjectDetailWindowXaml = @'
                ToolTip="Separate tags with commas"/>
 
       <!-- Priority -->
-      <TextBlock Text="Priority:" Grid.Row="4" Grid.Column="0" Margin="0,0,5,5" VerticalAlignment="Center"/>
-      <Border Grid.Row="4" Grid.Column="1"
-              CornerRadius="4"
-              BorderBrush="{DynamicResource BorderBrushColor}"
-              BorderThickness="1"
-              Background="{DynamicResource WindowBackgroundBrush}"
-              Margin="0,0,0,5"
-              Padding="2">
-        <ComboBox x:Name="PriorityComboBox"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  Padding="3">
-          <ComboBoxItem Style="{StaticResource PriorityItemStyle}">Low</ComboBoxItem>
-          <ComboBoxItem Style="{StaticResource PriorityItemStyle}">Medium</ComboBoxItem>
-          <ComboBoxItem Style="{StaticResource PriorityItemStyle}">High</ComboBoxItem>
-        </ComboBox>
-      </Border>
+<TextBlock Text="Priority:" Grid.Row="4" Grid.Column="0" Margin="0,0,5,5" VerticalAlignment="Center"/>
+<ComboBox x:Name="PriorityComboBox"
+          Grid.Row="4" Grid.Column="1"
+          Margin="0,0,0,5">
+  <ComboBoxItem>Low</ComboBoxItem>
+  <ComboBoxItem>Medium</ComboBoxItem>
+  <ComboBoxItem>High</ComboBoxItem>
+</ComboBox>
+
+
     </Grid>
 
     <!-- 3) Attachments Section -->
@@ -455,20 +439,45 @@ $ProjectDetailWindowXaml = @'
     </Grid>
 
     <!-- 5) Work Log List -->
-     <Border Grid.Row="3" CornerRadius="4" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1" Padding="2" Margin="0,0,0,10">
-      <ListView x:Name="LogListView" Margin="0">
-        <ListView.View>
-          <GridView>
-            <GridViewColumn Header="Date/Time" Width="150"
-                            DisplayMemberBinding="{Binding Timestamp, StringFormat={}{0:g}}"/>
-            <GridViewColumn Header="Subject" Width="350"
-                            DisplayMemberBinding="{Binding Subject}"/>
-            <GridViewColumn Header="Rank / Name" Width="100"
-                            DisplayMemberBinding="{Binding Duration}"/>
-          </GridView>
-        </ListView.View>
-      </ListView>
-    </Border>
+<Border Grid.Row="3"
+        CornerRadius="4"
+        BorderBrush="{DynamicResource BorderBrushColor}"
+        BorderThickness="1"
+        Padding="2"
+        Margin="0,0,0,10"
+        Background="{DynamicResource ContentBackgroundBrush}">
+  <ListView x:Name="LogListView"
+            Margin="0"
+            Background="{DynamicResource ContentBackgroundBrush}"
+            Foreground="{DynamicResource PrimaryForegroundBrush}">
+    <ListView.Resources>
+      <!-- rows -->
+      <Style TargetType="ListViewItem">
+        <Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+      </Style>
+      <!-- column headers -->
+      <Style TargetType="GridViewColumnHeader">
+        <Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      </Style>
+    </ListView.Resources>
+
+    <ListView.View>
+      <GridView>
+        <GridViewColumn Header="Date/Time" Width="150"
+                        DisplayMemberBinding="{Binding Timestamp, StringFormat={}{0:g}}"/>
+        <GridViewColumn Header="Subject" Width="350"
+                        DisplayMemberBinding="{Binding Subject}"/>
+        <GridViewColumn Header="Rank / Name" Width="100"
+                        DisplayMemberBinding="{Binding Duration}"/>
+      </GridView>
+    </ListView.View>
+  </ListView>
+</Border>
+
 
     <!-- 6) Remove Update Button -->
     <Button Grid.Row="4" x:Name="RemoveEntryButton" Content="Remove" Margin="0,0,0,10" Padding="10,5" HorizontalAlignment="Right"/>
@@ -517,6 +526,29 @@ $StylesXaml    = @'
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF0078D7"/>
     <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
 
+<!-- Make ComboBoxes match light theme inputs -->
+<Style TargetType="ComboBox">
+  <Setter Property="Background"      Value="{DynamicResource ContentBackgroundBrush}"/>
+  <Setter Property="Foreground"      Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Setter Property="BorderBrush"     Value="{DynamicResource BorderBrushColor}"/>
+  <Setter Property="BorderThickness" Value="1"/>
+  <Setter Property="Padding"         Value="4"/>
+</Style>
+
+<!-- Dropdown items selection colors -->
+<Style TargetType="ComboBoxItem">
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Style.Triggers>
+    <Trigger Property="IsSelected" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
+<!-- Ensure the popup list (dropdown) is NOT white in light theme -->
+<SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}"     Color="#FFFFFFFF"/>
+<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FF000000"/>
 
     <!-- Default text color -->
     <Style TargetType="TextBlock">
@@ -645,6 +677,30 @@ $DarkStylesXaml = @'
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF005A9E"/>
     <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
 
+<!-- Make ComboBoxes match dark theme inputs -->
+<Style TargetType="ComboBox">
+  <Setter Property="Background"      Value="{DynamicResource ContentBackgroundBrush}"/>
+  <Setter Property="Foreground"      Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Setter Property="BorderBrush"     Value="{DynamicResource BorderBrushColor}"/>
+  <Setter Property="BorderThickness" Value="1"/>
+  <Setter Property="Padding"         Value="4"/>
+</Style>
+
+
+<!-- Dropdown items selection colors -->
+<Style TargetType="ComboBoxItem">
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Style.Triggers>
+    <Trigger Property="IsSelected" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
+<!-- Ensure the popup list (dropdown) is dark -->
+<SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}"     Color="#4A4A4A"/>
+<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FFFFFFFF"/>
 
     <!-- Default text color -->
     <Style TargetType="TextBlock">
@@ -1226,6 +1282,7 @@ $mainXaml.Window.RemoveAttribute('x:Class')
 $mainXaml.Window.RemoveAttribute('mc:Ignorable')
 
 # Instantiate the window
+
 $MainWindow = [System.Windows.Markup.XamlReader]::Load(
   (New-Object System.Xml.XmlNodeReader $mainXaml)
 )
