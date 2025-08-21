@@ -1350,6 +1350,23 @@ $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($ProjectsColl
 $view.GroupDescriptions.Add((New-Object System.Windows.Data.PropertyGroupDescription("Status")))
 $ProjectList.ItemsSource = $ProjectsCollection
 
+# Custom order: Not Started (0), Ongoing (1), Complete (2)
+$statusOrder = @{
+    'Not Started' = 0
+    'Ongoing'     = 1
+    'Complete'    = 2
+}
+
+# Add a sort key for each project
+$ProjectsCollection | ForEach-Object {
+    $_ | Add-Member -NotePropertyName StatusOrder -NotePropertyValue ($statusOrder[$_.Status]) -Force
+}
+
+# Tell the view to sort by that key
+$view.SortDescriptions.Clear()
+$view.SortDescriptions.Add([ComponentModel.SortDescription]::new('StatusOrder',[ComponentModel.ListSortDirection]::Ascending))
+
+
 $view.Filter = {
     param($p)
     $t            = $SearchBox.Text.ToLower().Trim()
