@@ -34,11 +34,18 @@ $MainWindowXaml = @'
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource PrimaryForegroundBrush}"
                                Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding CreationDate.value, StringFormat='{}{0:MMM dd, yyyy}'}"
-                               HorizontalAlignment="Center"
-                               FontSize="11"
-                               Foreground="{DynamicResource GrayNumberBrush}"
-                               Margin="0,2,0,0"/>
+                    <TextBlock HorizontalAlignment="Center"
+           FontSize="11"
+           Foreground="{DynamicResource GrayNumberBrush}"
+           Margin="0,2,0,0">
+  <TextBlock.Text>
+    <PriorityBinding StringFormat="{}{0:MMM dd, yyyy}">
+      <Binding Path="CreationDate.value"/>
+      <Binding Path="CreationDate"/>
+    </PriorityBinding>
+  </TextBlock.Text>
+</TextBlock>
+
                 </StackPanel>
             </Border>
             <DataTemplate.Triggers>
@@ -337,7 +344,7 @@ $MainWindowXaml = @'
 $ProjectDetailWindowXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Project Details" Height="700" Width="900"
+        Title="Ticket Details" Height="700" Width="900"
         Background="{DynamicResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13"
         WindowStartupLocation="CenterOwner">
   <Grid Margin="10">
@@ -484,7 +491,7 @@ $ProjectDetailWindowXaml = @'
 
     <!-- 7) Buttons Section -->
     <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Stretch">
-      <Button x:Name="DeleteProjectButton" Content="Delete Project" Margin="0,0,10,0" Padding="10,5" HorizontalAlignment="Left"/>
+      <Button x:Name="DeleteProjectButton" Content="Delete Ticket" Margin="0,0,10,0" Padding="10,5" HorizontalAlignment="Left"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="SaveButton"   Content="Save"   Margin="5,0,0,0" Padding="10,5"/>
         <Button x:Name="CancelButton" Content="Cancel" Margin="5,0,0,0" Padding="10,5" IsCancel="True"/>
@@ -966,7 +973,7 @@ $attachmentsRoot = Join-Path (Split-Path $DataFile) 'Attachments'
 # Mapping used to enforce a stable tile order
 $statusOrder = @{
     'Not Started' = 0
-    'Ongoing'     = 1
+    'Ongoing'     = 1  
     'Complete'    = 2
 }
 
@@ -1385,16 +1392,20 @@ $view.Filter = {
     $t            = $SearchBox.Text.ToLower().Trim()
     $nameMatch    = [string]::IsNullOrEmpty($t) -or $p.Name.ToLower().Contains($t)
     $numberMatch  = [string]::IsNullOrEmpty($t) -or ($p.PSObject.Properties['Number'] -and $p.Number.ToString().ToLower().Contains($t))
-    $range        = $DateRangeFilter.Text; $start = $null
+    $subjectMatch = [string]::IsNullOrEmpty($t) -or ($p.PSObject.Properties['Subject'] -and $p.Subject.ToLower().Contains($t))
+    $range        = $DateRangeFilter.SelectedItem.Content
+    $start        = $null
     switch ($range) {
         'Last 30 Days'  { $start = (Get-Date).AddDays(-30) }
         'Last 6 Months' { $start = (Get-Date).AddMonths(-6) }
         'Last Year'     { $start = (Get-Date).AddYears(-1) }
     }
-    $textMatch = $nameMatch -or $numberMatch
+    $textMatch = $nameMatch -or $numberMatch -or $subjectMatch
     $statusOk  = $global:StatusFilter -eq 'All' -or $p.Status -eq $global:StatusFilter
-    if ($start) { $textMatch -and $statusOk -and ([DateTime]$p.CreationDate -ge $start) }
-    else        { $textMatch -and $statusOk }
+    $cd = if ($p.CreationDate -is [pscustomobject]) { [datetime]$p.CreationDate.value } else { [datetime]$p.CreationDate }
+if ($start) { $textMatch -and $statusOk -and ($cd -ge $start) }
+else        { $textMatch -and $statusOk }
+
 }
 
 $SearchBox.Add_TextChanged({
