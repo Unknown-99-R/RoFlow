@@ -963,6 +963,20 @@ $DataFile = $global:JSONFile
 # Attachments root folder
 $attachmentsRoot = Join-Path (Split-Path $DataFile) 'Attachments'
 
+# Mapping used to enforce a stable tile order
+$statusOrder = @{
+    'Not Started' = 0
+    'Ongoing'     = 1
+    'Complete'    = 2
+}
+
+function Apply-StatusOrder {
+    foreach ($p in $ProjectsCollection) {
+        $order = if ($statusOrder.ContainsKey($p.Status)) { $statusOrder[$p.Status] } else { 3 }
+        $p | Add-Member -NotePropertyName StatusOrder -NotePropertyValue $order -Force
+    }
+}
+
 # 4. Load Existing Projects
 $ProjectsList = @()
 if (Test-Path $DataFile) {
@@ -1003,6 +1017,8 @@ foreach ($p in $ProjectsList) {
 $ProjectsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
 $ProjectsList | ForEach-Object { $ProjectsCollection.Add($_) }
 
+Apply-StatusOrder
+
 # Assign stable GUIDs if missing
 $needsSave = $false
 foreach ($p in $ProjectsCollection) {
@@ -1038,6 +1054,14 @@ if ($needsSave) {
 function Save-ProjectToJson {
     param($project)
     Write-Log 'DEBUG' 'Entered Save-ProjectToJson' @{ Id = $project.Id }
+
+    if ([string]::IsNullOrWhiteSpace($project.Name)) {
+        Write-Log 'INFO' 'Project removed due to missing title' @{ Id = $project.Id }
+        if ($project.PSObject.Properties['Id']) {
+            Remove-ProjectFromJson $project
+        }
+        return
+    }
 
     if (-not $project.PSObject.Properties['Subject']) {
         $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
@@ -1254,10 +1278,10 @@ function Sync-ProjectsFromJson {
                  elseif ($parsed.PSObject.Properties['projects']) { $parsed.projects }
                  else { @() }
 
+        
         $ProjectsCollection.Clear()
         $plist | ForEach-Object { $ProjectsCollection.Add($_) }
-
-       
+        Apply-StatusOrder
     }
     catch {
         Write-Log 'ERROR' 'Exception in Sync-ProjectsFromJson' @{ Error = $_.Exception.Message }
@@ -1350,22 +1374,11 @@ $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($ProjectsColl
 $view.GroupDescriptions.Add((New-Object System.Windows.Data.PropertyGroupDescription("Status")))
 $ProjectList.ItemsSource = $ProjectsCollection
 
-# Custom order: Not Started (0), Ongoing (1), Complete (2)
-$statusOrder = @{
-    'Not Started' = 0
-    'Ongoing'     = 1
-    'Complete'    = 2
-}
+Apply-StatusOrder
 
-# Add a sort key for each project
-$ProjectsCollection | ForEach-Object {
-    $_ | Add-Member -NotePropertyName StatusOrder -NotePropertyValue ($statusOrder[$_.Status]) -Force
-}
-
-# Tell the view to sort by that key
+# Ensure the view respects the custom status order
 $view.SortDescriptions.Clear()
 $view.SortDescriptions.Add([ComponentModel.SortDescription]::new('StatusOrder',[ComponentModel.ListSortDirection]::Ascending))
-
 
 $view.Filter = {
     param($p)
