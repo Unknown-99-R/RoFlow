@@ -131,7 +131,7 @@ $MainWindowXaml = @'
                                                           Background="Transparent"/>
                                             <TextBlock x:Name="Watermark"
                                                        Text="Search"
-                                                       Foreground="LightGray"
+                                                       Foreground="{DynamicResource PlaceholderBrush}"
                                                        Margin="7,0,0,0"
                                                        VerticalAlignment="Center"
                                                        IsHitTestVisible="False"
@@ -200,12 +200,12 @@ $MainWindowXaml = @'
                     <WrapPanel/>
                 </ItemsPanelTemplate>
             </ListBox.ItemsPanel>
-            <ListBox.Resources>
+            <ListBox.Resources>␊
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"
-                                 Color="Transparent"/>
+                                 Color="{DynamicResource SelectionBackgroundBrushColor}"/>
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}"
-                                 Color="Black"/>
-            </ListBox.Resources>
+                                 Color="{DynamicResource SelectionForegroundBrushColor}"/>
+            </ListBox.Resources>␊
              <ListBox.GroupStyle>
   <GroupStyle>
     <GroupStyle.HeaderTemplate>
@@ -227,19 +227,20 @@ $MainWindowXaml = @'
                 VerticalAlignment="Bottom"
                 Margin="0,0,8,8"
                 Panel.ZIndex="1">
-            <Ellipse Width="20" Height="20"
-                     Stroke="Black"
+             <Ellipse Width="20" Height="20"
+                     Stroke="{DynamicResource BorderBrushColor}"
                      StrokeThickness="2"
                      Fill="Transparent"/>
             <Ellipse Width="2" Height="2"
-                     Fill="Black"
+                     Fill="{DynamicResource PrimaryForegroundBrush}"
                      Canvas.Left="9" Canvas.Top="4"/>
             <Rectangle Width="2" Height="8"
-                       Fill="Black"
+                       Fill="{DynamicResource PrimaryForegroundBrush}"
                        Canvas.Left="9" Canvas.Top="8"/>
             <Canvas.ToolTip>
-                <ToolTip>
-                    <Border Padding="8" Background="WhiteSmoke" CornerRadius="4">
+                <ToolTip Background="{DynamicResource PopupBackgroundBrush}"
+                         Foreground="{DynamicResource PopupForegroundBrush}">
+                    <Border Padding="8" Background="{DynamicResource PopupBackgroundBrush}" CornerRadius="4">
                         <StackPanel MaxWidth="300">
                             <!-- Step 1 -->
                             <TextBlock Text="Step 1: Open the New Ticket Dialog"
@@ -454,7 +455,7 @@ $ProjectDetailWindowXaml = @'
     </Grid>
 
     <!-- 5) Work Log List -->
-    <Border Grid.Row="3" CornerRadius="4" BorderBrush="#CCC" BorderThickness="1" Padding="2" Margin="0,0,0,10">
+     <Border Grid.Row="3" CornerRadius="4" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1" Padding="2" Margin="0,0,0,10">
       <ListView x:Name="LogListView" Margin="0">
         <ListView.View>
           <GridView>
@@ -510,6 +511,11 @@ $StylesXaml    = @'
     <SolidColorBrush x:Key="NotStartedTile" Color= "#9B3333"/>
     <SolidColorBrush x:Key="OngoingTile" Color= "Gold"/>
     <SolidColorBrush x:Key="CompleteTile" Color= "#669B66"/>
+    <SolidColorBrush x:Key="PopupBackgroundBrush" Color="White"/>
+    <SolidColorBrush x:Key="PopupForegroundBrush" Color="Black"/>
+    <SolidColorBrush x:Key="PlaceholderBrush" Color="LightGray"/>
+    <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF0078D7"/>
+    <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
 
 
     <!-- Default text color -->
@@ -571,7 +577,7 @@ $StylesXaml    = @'
     </Style>
 
     <Style x:Key="InfoIconTextStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
         <Setter Property="FontWeight" Value="Bold"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -633,6 +639,11 @@ $DarkStylesXaml = @'
     <SolidColorBrush x:Key="NotStartedTile" Color= "#FF1A1A"/>
     <SolidColorBrush x:Key="OngoingTile" Color= "#FEE75C"/>
     <SolidColorBrush x:Key="CompleteTile" Color= "#57F287"/>
+    <SolidColorBrush x:Key="PopupBackgroundBrush" Color="#3C3C3C"/>
+    <SolidColorBrush x:Key="PopupForegroundBrush" Color="White"/>
+    <SolidColorBrush x:Key="PlaceholderBrush" Color="#888888"/>
+    <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF005A9E"/>
+    <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
 
 
     <!-- Default text color -->
@@ -695,7 +706,7 @@ $DarkStylesXaml = @'
     </Style>
 
     <Style x:Key="InfoIconTextStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
         <Setter Property="FontWeight" Value="Bold"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -751,7 +762,7 @@ $LogsWindowXaml = @'
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Application Logs"
         Height="600" Width="800"
-        Background="Lavender"
+        Background="{DynamicResource WindowBackgroundBrush}"
         FontFamily="Segoe UI"
         FontSize="13"
         WindowStartupLocation="CenterOwner">
@@ -1219,6 +1230,11 @@ $MainWindow = [System.Windows.Markup.XamlReader]::Load(
   (New-Object System.Xml.XmlNodeReader $mainXaml)
 )
 
+if (-not $MainWindow) {
+    Write-Error "Failed to create main window from XAML."
+    exit 1
+}
+
 # Then wire up your converter & theme logic exactly as before:
 Add-Type -ReferencedAssemblies PresentationFramework, Microsoft.CSharp -TypeDefinition @"
 using System;
@@ -1239,7 +1255,12 @@ public class PSCustomDateConverter : IValueConverter {
 "@
 
 $converter = [PSCustomDateConverter]::new()
-$MainWindow.Resources.Add('DateConv', $converter)
+if (-not $MainWindow.Resources.Contains('DateConv')) {
+  $MainWindow.Resources.Add('DateConv', $converter)
+}
+else {
+  $MainWindow.Resources['DateConv'] = $converter
+}
 
 function Set-Theme([bool]$dark) {
   $MainWindow.Resources.MergedDictionaries.Clear()
@@ -1681,4 +1702,9 @@ function Show-ProjectDetailWindow {
 }
 
 # 12. Show Main Window
-$null = $MainWindow.ShowDialog()
+if ($MainWindow) {
+    $null = $MainWindow.ShowDialog()
+} else {
+    Write-Error "Main window was not initialized."
+    exit 1
+}
