@@ -15,21 +15,21 @@ $MainWindowXaml = @'
             <Border x:Name="TileBorder"
                     Background="{DynamicResource SurfaceOfTile}"
                     CornerRadius="8"
-                    Padding="10"
-                    Margin="8"
-                    BorderThickness="3"
+                    Padding="6"
+                    Margin="6"
+                    BorderThickness="2"
                     Effect="{DynamicResource TileShadow}">
                 <StackPanel HorizontalAlignment="Center"
                             VerticalAlignment="Center">
                     <TextBlock Text="{Binding Number}"
-                               FontSize="11"
+                               FontSize="10"
                                Foreground="{DynamicResource GrayNumberBrush}"
                                HorizontalAlignment="Center"
-                               Margin="0,0,0,2"/>
+                               Margin="0,0,0,1"/>
                     <TextBlock Text="{Binding Priority}"
-                               FontSize="11"
+                               FontSize="10"
                                HorizontalAlignment="Center"
-                               Margin="0,0,0,2">
+                               Margin="0,0,0,1">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{DynamicResource GrayNumberBrush}"/>
@@ -52,13 +52,14 @@ $MainWindowXaml = @'
                                TextTrimming="CharacterEllipsis"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
+                               FontSize="12"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource PrimaryForegroundBrush}"
-                               Margin="0,0,0,4"/>
+                               Margin="0,0,0,3"/>
                     <TextBlock HorizontalAlignment="Center"
-           FontSize="11"
+           FontSize="10"
            Foreground="{DynamicResource GrayNumberBrush}"
-           Margin="0,2,0,0">
+           Margin="0,1,0,0">
   <TextBlock.Text>
     <PriorityBinding StringFormat="{}{0:MMM dd, yyyy}">
       <Binding Path="CreationDate.value"/>
@@ -237,10 +238,10 @@ $MainWindowXaml = @'
     <GroupStyle.HeaderTemplate>
       <DataTemplate>
         <TextBlock Text="{Binding Name}"
-                   FontSize="14"
+                   FontSize="12"
                    FontWeight="Bold"
                    Foreground="{DynamicResource PrimaryForegroundBrush}"
-                   Margin="0,8,0,4"/>
+                   Margin="0,6,0,3"/>
       </DataTemplate>
     </GroupStyle.HeaderTemplate>
     </GroupStyle>
@@ -1517,7 +1518,7 @@ $AddProjectButton.Add_Click({
         $global:DetailWindowOpen = $true; $timer.Stop()
         $new = [PSCustomObject]@{
             Name         = ""; Status = "Not Started"; Subject = ""; Priority = "Low";
-            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date␊
+            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date
         }
         if (Show-ProjectDetailWindow $new) { Save-ProjectToJson $new }
         Sync-ProjectsFromJson; $view.Refresh()
