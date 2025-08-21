@@ -26,10 +26,19 @@ $MainWindowXaml = @'
                                Foreground="{DynamicResource GrayNumberBrush}"
                                HorizontalAlignment="Center"
                                Margin="0,0,0,1"/>
+                    <TextBlock Text="{Binding Name}"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryForegroundBrush}"
+                               Margin="0,0,0,1"/>
                     <TextBlock Text="{Binding Priority}"
                                FontSize="10"
                                HorizontalAlignment="Center"
-                               Margin="0,0,0,1">
+                               Margin="0,0,0,3">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{DynamicResource GrayNumberBrush}"/>
@@ -47,15 +56,6 @@ $MainWindowXaml = @'
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <TextBlock Text="{Binding Name}"
-                               TextWrapping="NoWrap"
-                               TextTrimming="CharacterEllipsis"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource PrimaryForegroundBrush}"
-                               Margin="0,0,0,3"/>
                     <TextBlock HorizontalAlignment="Center"
            FontSize="10"
            Foreground="{DynamicResource GrayNumberBrush}"
