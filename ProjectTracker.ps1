@@ -26,6 +26,27 @@ $MainWindowXaml = @'
                                Foreground="{DynamicResource GrayNumberBrush}"
                                HorizontalAlignment="Center"
                                Margin="0,0,0,2"/>
+                    <TextBlock Text="{Binding Priority}"
+                               FontSize="11"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,2">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource GrayNumberBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Priority}" Value="Low">
+                                        <Setter Property="Foreground" Value="Green"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Priority}" Value="Medium">
+                                        <Setter Property="Foreground" Value="Goldenrod"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Priority}" Value="High">
+                                        <Setter Property="Foreground" Value="Red"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding Name}"
                                TextWrapping="NoWrap"
                                TextTrimming="CharacterEllipsis"
@@ -1033,12 +1054,16 @@ foreach ($p in $ProjectsCollection) {
         $p | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString())
         $needsSave = $true
     }
-    if (-not $p.PSObject.Properties['Subject']) {
+     if (-not $p.PSObject.Properties['Subject']) {
         $p | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
         $needsSave = $true
     }
     if (-not $p.PSObject.Properties['Attachments']) {
         $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
+        $needsSave = $true
+    }
+    if (-not $p.PSObject.Properties['Priority']) {
+        $p | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
         $needsSave = $true
     }
 }
@@ -1072,6 +1097,9 @@ function Save-ProjectToJson {
 
     if (-not $project.PSObject.Properties['Subject']) {
         $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
+    }
+    if (-not $project.PSObject.Properties['Priority']) {
+        $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
     }
 
     $m = New-Object System.Threading.Mutex($false, $mutexName)
@@ -1117,6 +1145,7 @@ function Save-ProjectToJson {
             }
             $existing.Name        = $project.Name
             $existing.Status      = $project.Status
+            $existing | Add-Member -NotePropertyName Priority -NotePropertyValue $project.Priority -Force
             $existing.WorkLog     = $project.WorkLog
             if (-not $existing.PSObject.Properties['Attachments']) {
                 $existing | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
@@ -1129,6 +1158,7 @@ function Save-ProjectToJson {
                 Number       = $project.Number
                 Name         = $project.Name
                 Status       = $project.Status
+                Priority     = $project.Priority
                 WorkLog      = $project.WorkLog
                 Attachments  = $project.Attachments
                 CreationDate = $project.CreationDate
@@ -1287,7 +1317,12 @@ function Sync-ProjectsFromJson {
 
         
         $ProjectsCollection.Clear()
-        $plist | ForEach-Object { $ProjectsCollection.Add($_) }
+        $plist | ForEach-Object {
+            if (-not $_.PSObject.Properties['Priority']) {
+                $_ | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+            }
+            $ProjectsCollection.Add($_)
+        }
         Apply-StatusOrder
     }
     catch {
@@ -1481,8 +1516,8 @@ $AddProjectButton.Add_Click({
     if (-not $global:DetailWindowOpen) {
         $global:DetailWindowOpen = $true; $timer.Stop()
         $new = [PSCustomObject]@{
-            Name         = ""; Status = "Not Started"; Subject = "";
-            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date
+            Name         = ""; Status = "Not Started"; Subject = ""; Priority = "Low";
+            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date␊
         }
         if (Show-ProjectDetailWindow $new) { Save-ProjectToJson $new }
         Sync-ProjectsFromJson; $view.Refresh()
@@ -1562,6 +1597,9 @@ function Show-ProjectDetailWindow {
     if (-not $project.PSObject.Properties['WorkLog']) {
         $project | Add-Member -NotePropertyName WorkLog -NotePropertyValue @() -Force
     }
+    if (-not $project.PSObject.Properties['Priority']) {
+        $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+    }
     # ────────────────────────────────────────────
 
     # Load the raw XAML for the detail window
@@ -1593,6 +1631,7 @@ function Show-ProjectDetailWindow {
     $NameBox       = $win.FindName("NameTextBox")
     $StatusBox     = $win.FindName("StatusComboBox")
     $SubjectBox    = $win.FindName("SubjectTextBox")
+    $PriorityBox   = $win.FindName("PriorityComboBox")
     $AddAttBtn     = $win.FindName("AddAttachmentButton")
     $RemoveAttBtn  = $win.FindName("RemoveAttachmentButton")
     $AttList       = $win.FindName("AttachmentListBox")
@@ -1618,6 +1657,9 @@ function Show-ProjectDetailWindow {
     "Not Started","Ongoing","Complete" | ForEach-Object { $StatusBox.Items.Add($_) }
     $StatusBox.SelectedItem = $project.Status
     $SubjectBox.Text        = $project.Subject
+    $PriorityBox.Items.Clear()
+    "Low","Medium","High" | ForEach-Object { $PriorityBox.Items.Add($_) }
+    $PriorityBox.SelectedItem = $project.Priority
 
     $AttList.Items.Clear()
     foreach ($a in $project.Attachments) {
@@ -1775,9 +1817,10 @@ function Show-ProjectDetailWindow {
 
     # Save & Cancel
     $SaveBtn.Add_Click({
-        $project.Name    = $NameBox.Text
-        $project.Status  = $StatusBox.Text
-        $project.Subject = $SubjectBox.Text
+        $project.Name     = $NameBox.Text
+        $project.Status   = $StatusBox.Text
+        $project.Priority = $PriorityBox.Text
+        $project.Subject  = $SubjectBox.Text
         $project.WorkLog = @()
         foreach ($item in $LogListView.Items) {
             $project.WorkLog += [PSCustomObject]@{
