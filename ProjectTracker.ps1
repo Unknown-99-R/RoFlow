@@ -716,7 +716,7 @@ $DarkStylesXaml = @'
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Base brushes for dark theme -->
-    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#2B2B2B"/>
+     <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#2B2B2B"/>
     <SolidColorBrush x:Key="ContentBackgroundBrush" Color="#4A4A4A"/>
     <SolidColorBrush x:Key="BorderBrushColor" Color="#3C3C50"/>
     <SolidColorBrush x:Key="PrimaryForegroundBrush" Color="White"/>
@@ -743,7 +743,7 @@ $DarkStylesXaml = @'
 
 <!-- Dropdown items selection colors -->
 <Style TargetType="ComboBoxItem">
-   <Setter Property="Foreground" Value="Black"/>
+   <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
   <Style.Triggers>
     <Trigger Property="IsSelected" Value="True">
       <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
@@ -765,7 +765,7 @@ $DarkStylesXaml = @'
 </Style>
 
 <Style x:Key="SubMenuItemStyle" TargetType="MenuItem">
-  <Setter Property="Foreground" Value="Black"/>
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
   <Style.Triggers>
     <Trigger Property="IsHighlighted" Value="True">
       <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
@@ -909,12 +909,12 @@ $LogsWindowXaml = @'
     <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,8">
       <Button x:Name="RefreshLogsButton"
               Content="Refresh"
-              Style="{StaticResource {x:Type Button}}"
+              Style="{DynamicResource {x:Type Button}}"
               Padding="8,4"/>
       <ComboBox x:Name="LevelFilterComboBox"
                 Margin="10,0,0,0"
                 Width="150"
-                Style="{StaticResource {x:Type ComboBox}}"
+                Style="{DynamicResource {x:Type ComboBox}}"
                 SelectedIndex="0">
         <ComboBoxItem>All Levels</ComboBoxItem>
         <ComboBoxItem>DEBUG</ComboBoxItem>
@@ -931,7 +931,24 @@ $LogsWindowXaml = @'
             BorderThickness="1"
             Padding="2"
             Background="{DynamicResource ContentBackgroundBrush}">
-      <ListView x:Name="LogsListView" Margin="0">
+      <ListView x:Name="LogsListView"
+                Margin="0"
+                Background="{DynamicResource ContentBackgroundBrush}"
+                Foreground="{DynamicResource PrimaryForegroundBrush}">
+        <ListView.Resources>
+          <!-- rows -->
+          <Style TargetType="ListViewItem">
+            <Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+          </Style>
+          <!-- column headers -->
+          <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+          </Style>
+        </ListView.Resources>
         <ListView.View>
           <GridView>
             <GridViewColumn Header="Timestamp" Width="180"
@@ -958,7 +975,7 @@ $LogsWindowXaml = @'
       <Button x:Name="CloseLogsButton"
               Content="Close"
               IsCancel="True"
-              Style="{StaticResource {x:Type Button}}"
+              Style="{DynamicResource {x:Type Button}}"
               Padding="10,5"/>
     </StackPanel>
   </Grid>
@@ -1273,6 +1290,12 @@ function Show-LogsWindow {
     $logWin = [System.Windows.Markup.XamlReader]::Load(
         (New-Object System.Xml.XmlNodeReader $lxaml)
     )
+
+    # Apply current theme resources so brushes like WindowBackgroundBrush resolve
+    $logWin.Resources.MergedDictionaries.Clear()
+    $xml = if ($global:UseDarkTheme) { $darkStyles } else { $lightStyles }
+    $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    $logWin.Resources.MergedDictionaries.Add($dict)
 
     # Find its controls
     $refreshBtn = $logWin.FindName("RefreshLogsButton")
