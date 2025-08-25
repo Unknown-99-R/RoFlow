@@ -1,5 +1,54 @@
 param()
 
+# ─── AES ENCRYPTION FUNCTIONS ──────────────────────────────────────
+
+function Get-AESKey {
+    # Exactly 32 characters = 32 bytes = AES-256
+    $key = "ThisIsARobiKeyUnknow9900@!!9900"  # ← customize this, total 32 chars
+    return [System.Text.Encoding]::UTF8.GetBytes($key)
+}
+
+
+
+function Encrypt-WithAES {
+    param (
+        [Parameter(Mandatory)] [string] $PlainText
+    )
+
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Key = Get-AESKey
+    $aes.GenerateIV()
+
+    $encryptor = $aes.CreateEncryptor()
+    $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($PlainText)
+    $cipherBytes = $encryptor.TransformFinalBlock($plainBytes, 0, $plainBytes.Length)
+
+    # Store IV + ciphertext together
+    $output = $aes.IV + $cipherBytes
+    [System.Convert]::ToBase64String($output)
+}
+
+function Decrypt-WithAES {
+    param (
+        [Parameter(Mandatory)] [string] $EncryptedBase64
+    )
+
+    $combined = [System.Convert]::FromBase64String($EncryptedBase64)
+
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Key = Get-AESKey
+
+    $iv = $combined[0..15]
+    $cipherBytes = $combined[16..($combined.Length - 1)]
+
+    $aes.IV = $iv
+    $decryptor = $aes.CreateDecryptor()
+    $plainBytes = $decryptor.TransformFinalBlock($cipherBytes, 0, $cipherBytes.Length)
+
+    [System.Text.Encoding]::UTF8.GetString($plainBytes)
+}
+
+
 # ───────────────────────────────────────────────────────────────────
 # EMBEDDED MAIN WINDOW XAML
 # ───────────────────────────────────────────────────────────────────
@@ -1093,25 +1142,54 @@ function Apply-StatusOrder {
     }
 }
 
-# 4. Load Existing Projects
+# 4. Load Existing Projects (cleaned up)
+
 $ProjectsList = @()
+$parsed = $null
+
 if (Test-Path $DataFile) {
     try {
-        $raw    = Get-Content $DataFile -Raw
-        $parsed = $raw | ConvertFrom-Json
+        $raw = Get-Content $DataFile -Raw
+
+        # Try decrypting first
+        try {
+            $decrypted = Decrypt-WithAES $raw
+            $parsed = $decrypted | ConvertFrom-Json
+            Write-Log 'INFO' 'Loaded encrypted project file.' @{ }
+        }
+        catch {
+            Write-Log 'INFO' 'Decryption failed, attempting plaintext parse.' @{ }
+
+            try {
+                # Try plaintext
+                $parsed = $raw | ConvertFrom-Json
+
+                # Re-encrypt
+                $json = $parsed | ConvertTo-Json -Depth 5 -Compress
+                $encrypted = Encrypt-WithAES $json
+                Set-Content -Path $DataFile -Value $encrypted -Force
+
+                Write-Log 'INFO' 'Migrated plaintext to encrypted JSON.' @{ }
+            }
+            catch {
+                Write-Log 'ERROR' 'Failed to parse or encrypt plaintext JSON' @{ Error = $_.Exception.Message }
+            }
+        }
+
+        # Extract projects
         if ($parsed -is [System.Array]) {
             $ProjectsList = $parsed
         }
         elseif ($parsed.PSObject.Properties['projects']) {
             $ProjectsList = $parsed.projects
         }
-       
     }
     catch {
-        Write-Log 'ERROR' 'Failed to parse project JSON' @{ Error = $_.Exception.Message }
-        Write-Warning "Failed to parse JSON: $_"
+        Write-Log 'ERROR' 'Failed to load JSON file' @{ Error = $_.Exception.Message }
     }
 }
+
+# Normalize project structure
 foreach ($p in $ProjectsList) {
     if ($p.PSObject.Properties['CreationDate']) {
         $cd = $p.CreationDate
@@ -1129,6 +1207,8 @@ foreach ($p in $ProjectsList) {
         $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
     }
 }
+
+
 
 $ProjectsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
 $ProjectsList | ForEach-Object { $ProjectsCollection.Add($_) }
@@ -1255,11 +1335,17 @@ function Save-ProjectToJson {
 
         # Write back
         if ($isArray) {
-            $arr | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
+            $plainJson = $arr | ConvertTo-Json -Depth 5 -Compress
+$encrypted = Encrypt-WithAES $plainJson
+Set-Content -Path $DataFile -Value $encrypted -Force
+
         }
         else {
             $container.projects = $arr
-            $container | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
+            $json      = $container | ConvertTo-Json -Depth 5 -Compress
+$encrypted = Encrypt-WithAES $json
+Set-Content -Path $DataFile -Value $encrypted -Force
+
         }
 
         Write-Log 'INFO' 'Project saved' @{ Id = $project.Id; Number = $project.Number }
