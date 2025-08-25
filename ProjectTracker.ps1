@@ -115,13 +115,17 @@ $MainWindowXaml = @'
         <Menu Grid.Row="0"
               Style="{StaticResource FlatMenuStyle}"
               Foreground="{DynamicResource GrayNumberBrush}">
-            <MenuItem Header="Settings">
+            <MenuItem Header="Settings"
+                      Style="{DynamicResource TopMenuItemStyle}"
+                      ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
                 <MenuItem x:Name="ChangeDataFileMenuItem"
                           Header="Change Data File"/>
                 <MenuItem x:Name="DarkModeMenuItem" Header="Dark Mode" IsCheckable="True"/>
                 <MenuItem x:Name="ViewLogsMenuItem" Header="View Logs"/>
             </MenuItem>
-            <MenuItem x:Name="StatusFilterMenuItem" Header="Status: All">
+            <MenuItem x:Name="StatusFilterMenuItem" Header="Status: All"
+                      Style="{DynamicResource TopMenuItemStyle}"
+                      ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
                 <MenuItem x:Name="FilterAllMenuItem" Header="All"/>
                 <MenuItem x:Name="FilterNotStartedMenuItem" Header="Not Started"/>
                 <MenuItem x:Name="FilterOngoingMenuItem" Header="Ongoing"/>
@@ -575,6 +579,27 @@ $StylesXaml    = @'
   </Style.Triggers>
 </Style>
 
+<!-- Menu item styles -->
+<Style x:Key="TopMenuItemStyle" TargetType="MenuItem">
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Style.Triggers>
+    <Trigger Property="IsHighlighted" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
+<Style x:Key="SubMenuItemStyle" TargetType="MenuItem">
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Style.Triggers>
+    <Trigger Property="IsHighlighted" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
 <!-- Ensure the popup list (dropdown) is NOT white in light theme -->
 <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}"     Color="#FFFFFFFF"/>
 <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FF000000"/>
@@ -701,7 +726,7 @@ $DarkStylesXaml = @'
     <SolidColorBrush x:Key="OngoingTile" Color= "#FEE75C"/>
     <SolidColorBrush x:Key="CompleteTile" Color= "#57F287"/>
     <SolidColorBrush x:Key="PopupBackgroundBrush" Color="#3C3C3C"/>
-    <SolidColorBrush x:Key="PopupForegroundBrush" Color="White"/>
+    <SolidColorBrush x:Key="PopupForegroundBrush" Color="Black"/>
     <SolidColorBrush x:Key="PlaceholderBrush" Color="#888888"/>
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF005A9E"/>
     <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
@@ -718,7 +743,7 @@ $DarkStylesXaml = @'
 
 <!-- Dropdown items selection colors -->
 <Style TargetType="ComboBoxItem">
-  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+   <Setter Property="Foreground" Value="Black"/>
   <Style.Triggers>
     <Trigger Property="IsSelected" Value="True">
       <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
@@ -727,9 +752,31 @@ $DarkStylesXaml = @'
   </Style.Triggers>
 </Style>
 
+
+<!-- Menu item styles -->
+<Style x:Key="TopMenuItemStyle" TargetType="MenuItem">
+  <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Style.Triggers>
+    <Trigger Property="IsHighlighted" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
+<Style x:Key="SubMenuItemStyle" TargetType="MenuItem">
+  <Setter Property="Foreground" Value="Black"/>
+  <Style.Triggers>
+    <Trigger Property="IsHighlighted" Value="True">
+      <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SelectionForegroundBrush}"/>
+    </Trigger>
+  </Style.Triggers>
+</Style>
+
 <!-- Ensure the popup list (dropdown) is dark -->
 <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}"     Color="#4A4A4A"/>
-<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FFFFFFFF"/>
+<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FF000000"/>
 
     <!-- Default text color -->
     <Style TargetType="TextBlock">
