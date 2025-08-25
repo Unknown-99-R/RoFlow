@@ -1041,9 +1041,15 @@ Write-Log 'INFO' 'Logger initialized' @{ }
 
 # 3. Load/Save Config for JSON Path
 $configFile = Join-Path $ScriptDir "config.json"
+$global:UseDarkTheme = $false
+$configData = $null
 if (Test-Path $configFile) {
     try {
-        $global:JSONFile = (Get-Content $configFile -Raw | ConvertFrom-Json).JSONFilePath
+        $configData     = Get-Content $configFile -Raw | ConvertFrom-Json
+        $global:JSONFile = $configData.JSONFilePath
+        if ($configData.PSObject.Properties['UseDarkTheme']) {
+            $global:UseDarkTheme = [bool]$configData.UseDarkTheme
+        }
     }
     catch {
         Write-Log 'WARN' 'Failed to parse config.json' @{ File = $configFile; Error = $_.Exception.Message }
@@ -1059,7 +1065,7 @@ if (-not $global:JSONFile) {
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         Write-Log 'INFO' 'JSON file selected' @{ File = $dlg.FileName }
         $global:JSONFile = $dlg.FileName
-        @{ JSONFilePath = $global:JSONFile } |
+        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } |
             ConvertTo-Json -Depth 2 |
             Set-Content $configFile
     }
@@ -1474,14 +1480,13 @@ else {
 }
 
 function Set-Theme([bool]$dark) {
-  $MainWindow.Resources.MergedDictionaries.Clear()
-  $xml = if ($dark) { $darkStyles } else { $lightStyles }
-  $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
-  $MainWindow.Resources.MergedDictionaries.Add($dict)
-  $global:UseDarkTheme = $dark
-}
-Set-Theme $false
-
+    $MainWindow.Resources.MergedDictionaries.Clear()
+    $xml = if ($dark) { $darkStyles } else { $lightStyles }
+    $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    $MainWindow.Resources.MergedDictionaries.Add($dict)
+    $global:UseDarkTheme = $dark
+  }
+  Set-Theme $global:UseDarkTheme
 
 # 7. Wire Up UI Controls & Handlers
 $SearchBox                = $MainWindow.FindName("SearchBox")
@@ -1490,8 +1495,9 @@ $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
 $ChangeDataFileMenuItem   = $MainWindow.FindName("ChangeDataFileMenuItem")
-$DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
-$StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
+  $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
+  $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
+  $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
 $FilterAllMenuItem        = $MainWindow.FindName("FilterAllMenuItem")
 $FilterNotStartedMenuItem = $MainWindow.FindName("FilterNotStartedMenuItem")
 $FilterOngoingMenuItem    = $MainWindow.FindName("FilterOngoingMenuItem")
@@ -1566,16 +1572,20 @@ $ChangeDataFileMenuItem.Add_Click({
     $dlg.InitialDirectory = [System.IO.Path]::GetDirectoryName($global:JSONFile)
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $global:JSONFile = $dlg.FileName; $script:DataFile = $global:JSONFile
-        @{ JSONFilePath = $global:JSONFile } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
         Write-Log 'INFO' 'Data file changed' @{ File = $global:JSONFile }
         Sync-ProjectsFromJson; $view.Refresh()
     }
 })
 
-$DarkModeMenuItem.Add_Checked({ Set-Theme $true
-})
-$DarkModeMenuItem.Add_Unchecked({ Set-Theme $false
-})
+$DarkModeMenuItem.Add_Checked({
+      Set-Theme $true
+      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+  })
+  $DarkModeMenuItem.Add_Unchecked({
+      Set-Theme $false
+      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+  })
 $ViewLogsMenuItem.Add_Click({
     Show-LogsWindow
 })
