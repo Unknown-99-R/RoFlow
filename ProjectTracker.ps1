@@ -119,18 +119,30 @@ $MainWindowXaml = @'
                       Style="{DynamicResource TopMenuItemStyle}"
                       ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
                 <MenuItem x:Name="ChangeDataFileMenuItem"
-                          Header="Change Data File"/>
-                <MenuItem x:Name="DarkModeMenuItem" Header="Dark Mode" IsCheckable="True"/>
-                <MenuItem x:Name="ViewLogsMenuItem" Header="View Logs"/>
+          Header="Change Data File"
+          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+<MenuItem x:Name="DarkModeMenuItem"
+          Header="Dark Mode"
+          IsCheckable="True"
+          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+<MenuItem x:Name="ViewLogsMenuItem"
+          Header="View Logs"
+          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+
             </MenuItem>
             <MenuItem x:Name="StatusFilterMenuItem" Header="Status: All"
-                      Style="{DynamicResource TopMenuItemStyle}"
-                      ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
-                <MenuItem x:Name="FilterAllMenuItem" Header="All"/>
-                <MenuItem x:Name="FilterNotStartedMenuItem" Header="Not Started"/>
-                <MenuItem x:Name="FilterOngoingMenuItem" Header="Ongoing"/>
-                <MenuItem x:Name="FilterCompleteMenuItem" Header="Complete"/>
-            </MenuItem>
+          Style="{DynamicResource TopMenuItemStyle}"
+          ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
+  <MenuItem x:Name="FilterAllMenuItem"        Header="All"
+            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+  <MenuItem x:Name="FilterNotStartedMenuItem" Header="Not Started"
+            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+  <MenuItem x:Name="FilterOngoingMenuItem"    Header="Ongoing"
+            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+  <MenuItem x:Name="FilterCompleteMenuItem"   Header="Complete"
+            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+</MenuItem>
+
         </Menu>
 
         <!-- Top bar -->
@@ -558,6 +570,8 @@ $StylesXaml    = @'
     <SolidColorBrush x:Key="PlaceholderBrush" Color="LightGray"/>
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF0078D7"/>
     <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
+    <SolidColorBrush x:Key="SpecialMenuItemForegroundBrush" Color="Black"/>
+
 
 <!-- Make ComboBoxes match light theme inputs -->
 <Style TargetType="ComboBox">
@@ -730,11 +744,13 @@ $DarkStylesXaml = @'
     <SolidColorBrush x:Key="PlaceholderBrush" Color="#888888"/>
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#FF005A9E"/>
     <SolidColorBrush x:Key="SelectionForegroundBrush" Color="White"/>
+    <SolidColorBrush x:Key="SpecialMenuItemForegroundBrush" Color="Black"/>
+
 
 <!-- Make ComboBoxes match dark theme inputs -->
 <Style TargetType="ComboBox">
   <Setter Property="Background"      Value="{DynamicResource ContentBackgroundBrush}"/>
-  <Setter Property="Foreground"      Value="{DynamicResource PrimaryForegroundBrush}"/>
+  <Setter Property="Foreground"      Value="{DynamicResource PopupForegroundBrush}"/>
   <Setter Property="BorderBrush"     Value="{DynamicResource BorderBrushColor}"/>
   <Setter Property="BorderThickness" Value="1"/>
   <Setter Property="Padding"         Value="4"/>
@@ -838,13 +854,14 @@ $DarkStylesXaml = @'
     </Style>
 
     <Style x:Key="InfoIconTextStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PopupForegroundBrush}"/>
         <Setter Property="FontWeight" Value="Bold"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="IsHitTestVisible" Value="False"/>
-    </Style>
+
+          </Style>
 
     <!-- Priority ComboBox items -->
     <Style x:Key="PriorityItemStyle" TargetType="ComboBoxItem">
