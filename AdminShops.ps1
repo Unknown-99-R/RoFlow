@@ -1,7 +1,7 @@
 # Shop administration utilities
 
 # Load database helpers
-. "$PSScriptRoot/LiteDbUtils.ps1" 2>$null
+Import-Module (Join-Path $PSScriptRoot 'LiteDbUtils.psm1') -Force
 
 function Add-Shop {
     [CmdletBinding()]
