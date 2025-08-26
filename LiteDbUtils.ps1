@@ -159,7 +159,7 @@ function Show-ShopSelection {
     if ($shops) { $items = @($shops) }
     if (-not $items -or $items.Count -eq 0) {
         [System.Windows.Forms.MessageBox]::Show(
-            'No shops found. Use the admin script or the "Add Shop" option to create one.',
+            'No shops found. Use the "Manage Shops" option to create one.',
             'No Shops'
         )
     }
@@ -182,10 +182,14 @@ function Show-ShopSelection {
         if ($selection -and $selection -ne '<Add Shop>') {
             Set-ActiveShop $selection
         } elseif ($selection -eq '<Add Shop>') {
-            [System.Windows.Forms.MessageBox]::Show(
-                'Run the admin script to add a shop.',
-                'Add Shop'
-            )
+            if (Get-Command -Name Show-ManageShopsWindow -ErrorAction SilentlyContinue) {
+                Show-ManageShopsWindow
+            } else {
+                [System.Windows.Forms.MessageBox]::Show(
+                    'Use the "Manage Shops" option to add a shop.',
+                    'Add Shop'
+                )
+            }
         }
     }
 }
