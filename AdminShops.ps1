@@ -49,7 +49,8 @@ function Show-ShopMenu {
         Write-Host "1) List Shops"
         Write-Host "2) Add Shop"
         Write-Host "3) Remove Shop"
-        Write-Host "4) Exit"
+         Write-Host "4) Change Database File"
+        Write-Host "5) Exit"
         $choice = Read-Host "Select an option"
         switch ($choice) {
             '1' { List-Shops | ForEach-Object { Write-Host $_ } }
@@ -61,10 +62,18 @@ function Show-ShopMenu {
                 $name = Read-Host "Enter shop name to remove"
                 if ($name) { Remove-Shop -Name $name }
             }
-            '4' { break }
+            '4' {
+                try {
+                    Select-DatabasePath | Out-Null
+                    Write-Host "Database path updated." -ForegroundColor Green
+                } catch {
+                    Write-Host $_ -ForegroundColor Red
+                }
+            }
+            '5' { break }
             default { Write-Host "Invalid selection" -ForegroundColor Red }
         }
-    } while ($choice -ne '4')
+    } while ($choice -ne '5')
 }
 
 if (-not $MyInvocation.InvocationName) {
