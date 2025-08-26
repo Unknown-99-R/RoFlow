@@ -1001,6 +1001,45 @@ $LogsWindowXaml = @'
   </Grid>
 </Window>
 '@
+# ───────────────────────────────────────────────────────────────────
+# EMBEDDED ManageShopsWindow XAML
+# ───────────────────────────────────────────────────────────────────
+$ManageShopsWindowXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Manage Shops"
+        Height="400" Width="300"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        WindowStartupLocation="CenterOwner">
+  <Grid Margin="10">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0"
+            CornerRadius="4"
+            BorderBrush="{DynamicResource BorderBrushColor}"
+            BorderThickness="1"
+            Padding="2"
+            Background="{DynamicResource ContentBackgroundBrush}">
+      <ListBox x:Name="ShopsListBox"
+               DisplayMemberPath="Name"
+               Background="{DynamicResource ContentBackgroundBrush}"
+               Foreground="{DynamicResource PrimaryForegroundBrush}"/>
+    </Border>
+
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <TextBox x:Name="NewShopTextBox" Width="120" Margin="0,0,8,0" Padding="4" Style="{StaticResource RoundedTextBox}"/>
+      <Button x:Name="AddShopButton" Content="Add" Margin="0,0,8,0" Padding="8,4" Style="{DynamicResource {x:Type Button}}"/>
+      <Button x:Name="DeleteShopButton" Content="Delete" Margin="0,0,8,0" Padding="8,4" Style="{DynamicResource {x:Type Button}}"/>
+      <Button x:Name="CloseShopButton" Content="Close" IsCancel="True" Padding="8,4" Style="{DynamicResource {x:Type Button}}"/>
+    </StackPanel>
+  </Grid>
+</Window>
+'@
 # 2. Paths & Globals
 $inv = $MyInvocation.MyCommand
 if ($inv.Path) {
@@ -1167,37 +1206,27 @@ function Remove-Shop {
 }
 
 function Show-ShopManagementDialog {
-    Add-Type -AssemblyName System.Windows.Forms
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Manage Shops'
-    $form.StartPosition = 'CenterScreen'
-    $form.Width = 300
-    $form.Height = 400
+    [xml]$sxaml = $ManageShopsWindowXaml
+    $sxaml.Window.RemoveAttribute('x:Class')
+    $win = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sxaml))
 
-    $list = New-Object System.Windows.Forms.ListBox
-    $list.DisplayMember = 'Name'
-    $list.Dock = 'Top'
-    $list.Height = 300
-    $form.Controls.Add($list)
+    $win.Resources.MergedDictionaries.Clear()
+    $xml = if ($global:UseDarkTheme) { $darkStyles } else { $lightStyles }
+    $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    $win.Resources.MergedDictionaries.Add($dict)
+
+    $list    = $win.FindName("ShopsListBox")
+    $nameBox = $win.FindName("NewShopTextBox")
+    $addBtn  = $win.FindName("AddShopButton")
+    $delBtn  = $win.FindName("DeleteShopButton")
+    $closeBtn= $win.FindName("CloseShopButton")
 
     $refresh = {
         $list.Items.Clear()
         Get-Shops | Sort-Object Name | ForEach-Object { $list.Items.Add($_) | Out-Null }
     }
-    & $refresh
 
-    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
-    $panel.Dock = 'Bottom'
-    $panel.Height = 40
-    $form.Controls.Add($panel)
-
-    $nameBox = New-Object System.Windows.Forms.TextBox
-    $nameBox.Width = 120
-    $panel.Controls.Add($nameBox)
-
-    $addBtn = New-Object System.Windows.Forms.Button
-    $addBtn.Text = 'Add'
-    $addBtn.add_Click({
+    $addBtn.Add_Click({
         $n = $nameBox.Text.Trim()
         if ($n) {
             Add-Shop $n
@@ -1205,30 +1234,25 @@ function Show-ShopManagementDialog {
             & $refresh
         }
     })
-    $panel.Controls.Add($addBtn)
 
-    $delBtn = New-Object System.Windows.Forms.Button
-    $delBtn.Text = 'Delete'
-    $delBtn.add_Click({
-        if ($list.SelectedItem) {
-            $id = $list.SelectedItem._id
+    $delBtn.Add_Click({
+        $sel = $list.SelectedItem
+        if ($sel) {
+            $id = $sel._id
             if ($id -eq 1) {
-                [System.Windows.Forms.MessageBox]::Show('Default shop cannot be deleted.')
+                [System.Windows.MessageBox]::Show('Default shop cannot be deleted.')
             } else {
                 Remove-Shop $id
                 & $refresh
             }
         }
     })
-    $panel.Controls.Add($delBtn)
 
-    $closeBtn = New-Object System.Windows.Forms.Button
-    $closeBtn.Text = 'Close'
-    $closeBtn.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $panel.Controls.Add($closeBtn)
-    $form.AcceptButton = $closeBtn
+    $closeBtn.Add_Click({ $win.Close() })
 
-    $null = $form.ShowDialog()
+    & $refresh
+    $win.Owner = $MainWindow
+    $win.ShowDialog() | Out-Null
 }
 
 # 4. Load Existing Projects
