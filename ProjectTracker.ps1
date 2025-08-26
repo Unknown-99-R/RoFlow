@@ -1,5 +1,7 @@
 param()
 
+Add-Type -Path "$PSScriptRoot\LiteDB.dll"
+
 # ─── AES ENCRYPTION FUNCTIONS ──────────────────────────────────────
 
 function Get-AESKey {
@@ -169,6 +171,9 @@ $MainWindowXaml = @'
                       ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
                 <MenuItem x:Name="SwitchShopMenuItem"
           Header="Switch Shop"
+          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+<MenuItem x:Name="ManageShopsMenuItem"
+          Header="Manage Shops"
           Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
 <MenuItem x:Name="DarkModeMenuItem"
           Header="Dark Mode"
@@ -1092,6 +1097,76 @@ Write-Log 'INFO' 'Logger initialized' @{ }
 $configFile = Join-Path $ScriptDir "config.json"
 Import-Module (Join-Path $ScriptDir 'LiteDbUtils.psm1') -Force
 Initialize-Database
+
+function Add-Shop {
+    param([string]$Name)
+    Backup-Database
+    $db = Get-Db
+    try {
+        $col = $db.GetCollection('shops')
+        $col.Upsert([pscustomobject]@{ _id = $Name; Name = $Name }) | Out-Null
+    } finally { $db.Dispose() }
+}
+
+function Remove-Shop {
+    param([string]$Name)
+    Backup-Database
+    $db = Get-Db
+    try {
+        $db.GetCollection('shops').Delete($Name) | Out-Null
+    } finally { $db.Dispose() }
+}
+
+function Show-ManageShopsWindow {
+    Add-Type -AssemblyName System.Windows.Forms
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Manage Shops'
+    $form.StartPosition = 'CenterScreen'
+    $form.Width = 300; $form.Height = 300
+
+    $list = New-Object System.Windows.Forms.ListBox
+    $list.Dock = 'Top'; $list.Height = 150
+    $form.Controls.Add($list)
+
+    function Refresh-ShopList {
+        $list.DataSource = Get-DistinctShops | Sort-Object
+    }
+    Refresh-ShopList
+
+    $text = New-Object System.Windows.Forms.TextBox
+    $text.Dock = 'Top'
+    $form.Controls.Add($text)
+
+    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $panel.Dock = 'Bottom'
+    $addBtn = New-Object System.Windows.Forms.Button
+    $addBtn.Text = 'Add'
+    $removeBtn = New-Object System.Windows.Forms.Button
+    $removeBtn.Text = 'Delete Selected'
+    $closeBtn = New-Object System.Windows.Forms.Button
+    $closeBtn.Text = 'Close'
+    $panel.Controls.AddRange(@($addBtn,$removeBtn,$closeBtn))
+    $form.Controls.Add($panel)
+
+    $addBtn.Add_Click({
+        if ($text.Text) {
+            Add-Shop $text.Text
+            Refresh-ShopList
+            $text.Clear()
+        }
+    })
+    $removeBtn.Add_Click({
+        if ($list.SelectedItem) {
+            Remove-Shop $list.SelectedItem
+            Refresh-ShopList
+        }
+    })
+    $closeBtn.Add_Click({ $form.Close() })
+
+    $form.ShowDialog() | Out-Null
+}
+
 $global:ActiveShop = Get-ActiveShop
 $global:UseDarkTheme = $false
 if (Test-Path $configFile) {
@@ -1140,6 +1215,7 @@ function Remove-ProjectWrapper {
 function Sync-ProjectsFromDbWrapper {
     Sync-ProjectsFromDb $ProjectsCollection
 }
+
 
 # 6. Load XAML & Styles from embedded here-strings
 # ──────────────────────────────────────────────────
@@ -1207,6 +1283,7 @@ $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
 $SwitchShopMenuItem   = $MainWindow.FindName("SwitchShopMenuItem")
+$ManageShopsMenuItem   = $MainWindow.FindName("ManageShopsMenuItem")
   $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
   $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
   $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
@@ -1278,6 +1355,10 @@ $FilterCompleteMenuItem.Add_Click({
 
 $SwitchShopMenuItem.Add_Click({
     Show-ShopSelection
+    Sync-ProjectsFromDbWrapper; $view.Refresh()
+})
+$ManageShopsMenuItem.Add_Click({
+    Show-ManageShopsWindow
     Sync-ProjectsFromDbWrapper; $view.Refresh()
 })
 
