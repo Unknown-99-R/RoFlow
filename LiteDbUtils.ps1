@@ -9,8 +9,11 @@ function Select-DatabasePath {
     Add-Type -AssemblyName System.Windows.Forms
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Title  = 'Select LiteDB database file'
-    $dlg.Filter = 'LiteDB Files (*.db)|*.db|All Files (*.*)|*.*'
+    $dlg.Filter = 'LiteDB Files (*.db)|*.db'
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+         if ([IO.Path]::GetExtension($dlg.FileName) -ne '.db') {
+            throw 'Please select a .db file'
+        }
         @{ DbPath = $dlg.FileName } | ConvertTo-Json | Set-Content $dbConfigFile
          $global:DbPath = $dlg.FileName
         Validate-Database
@@ -24,8 +27,10 @@ function Get-DatabasePath {
     if (Test-Path $dbConfigFile) {
         try {
             $path = (Get-Content $dbConfigFile -Raw | ConvertFrom-Json).DbPath
-            $global:DbPath = $path
-            return $path
+            if ($path -and (Test-Path $path) -and ([IO.Path]::GetExtension($path) -eq '.db')) {
+                $global:DbPath = $path
+                return $path
+            }
         } catch {}
     }
     return Select-DatabasePath
@@ -153,17 +158,20 @@ function Get-DistinctShops {
 
 function Show-ShopSelection {
     $shops = Get-DistinctShops | Sort-Object
-    Add-Type -AssemblyName System.Windows.Forms
 
-    $items = @()
-    if ($shops) { $items = @($shops) }
-    if (-not $items -or $items.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show(
-            'No shops found. Use the "Manage Shops" option to create one.',
-            'No Shops'
-        )
+    if (-not $shops -or $shops.Count -eq 0) {
+        Backup-Database
+        $db = Get-Db
+        try {
+            $col = $db.GetCollection('shops')
+            $col.Upsert([pscustomobject]@{ _id = 'TMP'; Name = 'TMP' }) | Out-Null
+        } finally { $db.Dispose() }
+        Set-ActiveShop 'TMP'
+        return
     }
-    $items += '<Add Shop>'
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $items = @($shops) + '<Add Shop>'
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Select Shop'
