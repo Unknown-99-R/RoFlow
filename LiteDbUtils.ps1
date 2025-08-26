@@ -5,22 +5,30 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $configFile   = Join-Path $ScriptDir 'config.json'
 $dbConfigFile = Join-Path $ScriptDir 'dbconfig.json'
 
-function Get-DatabasePath {
-    if (Test-Path $dbConfigFile) {
-        try {
-            return (Get-Content $dbConfigFile -Raw | ConvertFrom-Json).DbPath
-        } catch {}
-    }
+function Select-DatabasePath {
     Add-Type -AssemblyName System.Windows.Forms
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Title  = 'Select LiteDB database file'
     $dlg.Filter = 'LiteDB Files (*.db)|*.db|All Files (*.*)|*.*'
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         @{ DbPath = $dlg.FileName } | ConvertTo-Json | Set-Content $dbConfigFile
+         $global:DbPath = $dlg.FileName
+        Validate-Database
         return $dlg.FileName
     } else {
         throw 'Database path selection cancelled.'
     }
+}
+
+function Get-DatabasePath {
+    if (Test-Path $dbConfigFile) {
+        try {
+            $path = (Get-Content $dbConfigFile -Raw | ConvertFrom-Json).DbPath
+            $global:DbPath = $path
+            return $path
+        } catch {}
+    }
+    return Select-DatabasePath
 }
 
 function Get-ActiveShop {
@@ -139,19 +147,30 @@ function Sync-ProjectsFromDb {
 function Get-DistinctShops {
     $db = Get-Db -ReadOnly
     try {
-        return $db.GetCollection('projects').Distinct('Shop')
+        return $db.GetCollection('shops').FindAll() | ForEach-Object { $_.Name }
     } finally { $db.Dispose() }
 }
 
 function Show-ShopSelection {
     $shops = Get-DistinctShops | Sort-Object
     Add-Type -AssemblyName System.Windows.Forms
+
+    $items = @()
+    if ($shops) { $items = @($shops) }
+    if (-not $items -or $items.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            'No shops found. Use the admin script or the "Add Shop" option to create one.',
+            'No Shops'
+        )
+    }
+    $items += '<Add Shop>'
+
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'Select Shop'
     $form.StartPosition = 'CenterScreen'
     $combo = New-Object System.Windows.Forms.ComboBox
     $combo.Dock = 'Top'
-    $combo.DataSource = $shops
+    $combo.DataSource = $items
     $form.Controls.Add($combo)
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = 'OK'
@@ -159,7 +178,15 @@ function Show-ShopSelection {
     $form.AcceptButton = $ok
     $form.Controls.Add($ok)
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Set-ActiveShop $combo.SelectedItem
+        $selection = $combo.SelectedItem
+        if ($selection -and $selection -ne '<Add Shop>') {
+            Set-ActiveShop $selection
+        } elseif ($selection -eq '<Add Shop>') {
+            [System.Windows.Forms.MessageBox]::Show(
+                'Run the admin script to add a shop.',
+                'Add Shop'
+            )
+        }
     }
 }
 
