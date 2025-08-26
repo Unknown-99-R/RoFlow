@@ -1,7 +1,7 @@
 # Shop management functions for RoFlow
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Import-Module (Join-Path $ScriptDir 'LiteDbUtils.ps1') -Force
+Import-Module (Join-Path $ScriptDir 'LiteDbUtils.psm1') -Force
 
 function Get-Shops {
     $db = Get-Db -ReadOnly
