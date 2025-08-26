@@ -1,56 +1,5 @@
 param()
 
-Add-Type -Path "$PSScriptRoot\LiteDB.dll"
-
-# ─── AES ENCRYPTION FUNCTIONS ──────────────────────────────────────
-
-function Get-AESKey {
-    # Exactly 32 characters = 32 bytes = AES-256
-    $key = "ThisIsARobiKeyUnknow9900@!!99000"  # ← customize this, total 32 chars
-    return [System.Text.Encoding]::UTF8.GetBytes($key)
-}
-
-
-
-function Encrypt-WithAES {
-    param (
-        [Parameter(Mandatory)] [string] $PlainText
-    )
-
-    $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.Key = Get-AESKey
-    $aes.GenerateIV()
-
-    $encryptor = $aes.CreateEncryptor()
-    $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($PlainText)
-    $cipherBytes = $encryptor.TransformFinalBlock($plainBytes, 0, $plainBytes.Length)
-
-    # Store IV + ciphertext together
-    $output = $aes.IV + $cipherBytes
-    [System.Convert]::ToBase64String($output)
-}
-
-function Decrypt-WithAES {
-    param (
-        [Parameter(Mandatory)] [string] $EncryptedBase64
-    )
-
-    $combined = [System.Convert]::FromBase64String($EncryptedBase64)
-
-    $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.Key = Get-AESKey
-
-    $iv = $combined[0..15]
-    $cipherBytes = $combined[16..($combined.Length - 1)]
-
-    $aes.IV = $iv
-    $decryptor = $aes.CreateDecryptor()
-    $plainBytes = $decryptor.TransformFinalBlock($cipherBytes, 0, $cipherBytes.Length)
-
-    [System.Text.Encoding]::UTF8.GetString($plainBytes)
-}
-
-
 # ───────────────────────────────────────────────────────────────────
 # EMBEDDED MAIN WINDOW XAML
 # ───────────────────────────────────────────────────────────────────
@@ -169,11 +118,8 @@ $MainWindowXaml = @'
             <MenuItem Header="Settings"
                       Style="{DynamicResource TopMenuItemStyle}"
                       ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
-                <MenuItem x:Name="SwitchShopMenuItem"
-          Header="Switch Shop"
-          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-<MenuItem x:Name="ManageShopsMenuItem"
-          Header="Manage Shops"
+                <MenuItem x:Name="ChangeDataFileMenuItem"
+          Header="Change Data File"
           Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
 <MenuItem x:Name="DarkModeMenuItem"
           Header="Dark Mode"
@@ -1093,94 +1039,45 @@ function Write-Log {
 
 Write-Log 'INFO' 'Logger initialized' @{ }
 
-# 3. Database and shop configuration
+# 3. Load/Save Config for JSON Path
 $configFile = Join-Path $ScriptDir "config.json"
-Import-Module (Join-Path $ScriptDir 'LiteDbUtils.psm1') -Force
-Initialize-Database
-
-function Add-Shop {
-    param([string]$Name)
-    Backup-Database
-    $db = Get-Db
-    try {
-        $col = $db.GetCollection('shops')
-        $col.Upsert([pscustomobject]@{ _id = $Name; Name = $Name }) | Out-Null
-    } finally { $db.Dispose() }
-}
-
-function Remove-Shop {
-    param([string]$Name)
-    Backup-Database
-    $db = Get-Db
-    try {
-        $db.GetCollection('shops').Delete($Name) | Out-Null
-    } finally { $db.Dispose() }
-}
-
-function Show-ManageShopsWindow {
-    Add-Type -AssemblyName System.Windows.Forms
-
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Manage Shops'
-    $form.StartPosition = 'CenterScreen'
-    $form.Width = 300; $form.Height = 300
-
-    $list = New-Object System.Windows.Forms.ListBox
-    $list.Dock = 'Top'; $list.Height = 150
-    $form.Controls.Add($list)
-
-    function Refresh-ShopList {
-        $list.DataSource = Get-DistinctShops | Sort-Object
-    }
-    Refresh-ShopList
-
-    $text = New-Object System.Windows.Forms.TextBox
-    $text.Dock = 'Top'
-    $form.Controls.Add($text)
-
-    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
-    $panel.Dock = 'Bottom'
-    $addBtn = New-Object System.Windows.Forms.Button
-    $addBtn.Text = 'Add'
-    $removeBtn = New-Object System.Windows.Forms.Button
-    $removeBtn.Text = 'Delete Selected'
-    $closeBtn = New-Object System.Windows.Forms.Button
-    $closeBtn.Text = 'Close'
-    $panel.Controls.AddRange(@($addBtn,$removeBtn,$closeBtn))
-    $form.Controls.Add($panel)
-
-    $addBtn.Add_Click({
-        if ($text.Text) {
-            Add-Shop $text.Text
-            Refresh-ShopList
-            $text.Clear()
-        }
-    })
-    $removeBtn.Add_Click({
-        if ($list.SelectedItem) {
-            Remove-Shop $list.SelectedItem
-            Refresh-ShopList
-        }
-    })
-    $closeBtn.Add_Click({ $form.Close() })
-
-    $form.ShowDialog() | Out-Null
-}
-
-$global:ActiveShop = Get-ActiveShop
 $global:UseDarkTheme = $false
+$configData = $null
 if (Test-Path $configFile) {
     try {
-        $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
-        if ($cfg.PSObject.Properties['UseDarkTheme']) { $global:UseDarkTheme = [bool]$cfg.UseDarkTheme }
-    } catch {
+        $configData     = Get-Content $configFile -Raw | ConvertFrom-Json
+        $global:JSONFile = $configData.JSONFilePath
+        if ($configData.PSObject.Properties['UseDarkTheme']) {
+            $global:UseDarkTheme = [bool]$configData.UseDarkTheme
+        }
+    }
+    catch {
         Write-Log 'WARN' 'Failed to parse config.json' @{ File = $configFile; Error = $_.Exception.Message }
+        $global:JSONFile = $null
     }
 }
-if (-not $global:ActiveShop) { Show-ShopSelection }
+if (-not $global:JSONFile) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title            = "Select JSON file for projects"
+    $dlg.Filter           = "JSON Files (*.json)|*.json|All Files (*.*)|*.*"
+    $dlg.InitialDirectory = [Environment]::GetFolderPath("MyDocuments")
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        Write-Log 'INFO' 'JSON file selected' @{ File = $dlg.FileName }
+        $global:JSONFile = $dlg.FileName
+        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } |
+            ConvertTo-Json -Depth 2 |
+            Set-Content $configFile
+    }
+    else {
 
-# Attachments root folder follows the database location
-$attachmentsRoot = Join-Path (Split-Path $global:DbPath) 'Attachments'
+        exit 1
+    }
+}
+$DataFile = $global:JSONFile
+
+# Attachments root folder
+$attachmentsRoot = Join-Path (Split-Path $DataFile) 'Attachments'
 
 # Mapping used to enforce a stable tile order
 $statusOrder = @{
@@ -1196,27 +1093,342 @@ function Apply-StatusOrder {
     }
 }
 
-# 4. Load Existing Projects from database
+# 4. Load Existing Projects
+$ProjectsList = @()
+if (Test-Path $DataFile) {
+    try {
+        $raw    = Get-Content $DataFile -Raw
+        $parsed = $raw | ConvertFrom-Json
+        if ($parsed -is [System.Array]) {
+            $ProjectsList = $parsed
+        }
+        elseif ($parsed.PSObject.Properties['projects']) {
+            $ProjectsList = $parsed.projects
+        }
+       
+    }
+    catch {
+        Write-Log 'ERROR' 'Failed to parse project JSON' @{ Error = $_.Exception.Message }
+        Write-Warning "Failed to parse JSON: $_"
+    }
+}
+foreach ($p in $ProjectsList) {
+    if ($p.PSObject.Properties['CreationDate']) {
+        $cd = $p.CreationDate
+        if ($cd -is [string]) {
+            $p.CreationDate = [DateTime]$cd
+        }
+        elseif ($cd -is [PSCustomObject] -and $cd.value) {
+            $p.CreationDate = [DateTime]$cd.value
+        }
+    }
+    if (-not $p.PSObject.Properties['Subject']) {
+        $p | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
+    }
+    if (-not $p.PSObject.Properties['Attachments']) {
+        $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
+    }
+}
 
 $ProjectsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
-Sync-ProjectsFromDb $ProjectsCollection
+$ProjectsList | ForEach-Object { $ProjectsCollection.Add($_) }
 
-# 5. Data operation wrappers using LiteDB
-function Save-ProjectWrapper {
+Apply-StatusOrder
+
+# Assign stable GUIDs if missing
+$needsSave = $false
+foreach ($p in $ProjectsCollection) {
+    if (-not $p.PSObject.Properties['Id']) {
+        $p | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString())
+        $needsSave = $true
+    }
+     if (-not $p.PSObject.Properties['Subject']) {
+        $p | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
+        $needsSave = $true
+    }
+    if (-not $p.PSObject.Properties['Attachments']) {
+        $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
+        $needsSave = $true
+    }
+    if (-not $p.PSObject.Properties['Priority']) {
+        $p | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+        $needsSave = $true
+    }
+}
+if ($needsSave) {
+    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    if ($m.WaitOne(5000)) {
+        try {
+            @{ projects = $ProjectsCollection } |
+                ConvertTo-Json -Depth 5 -Compress |
+                Set-Content -Path $DataFile -Force
+            Write-Log 'INFO' 'Assigned missing IDs and saved initial project list' @{ }
+        }
+        finally {
+            $m.ReleaseMutex(); $m.Dispose()
+        }
+    }
+}
+
+# 5. Sync Functions
+function Save-ProjectToJson {
     param($project)
-    Save-Project $project
+    Write-Log 'DEBUG' 'Entered Save-ProjectToJson' @{ Id = $project.Id }
+
+    if ([string]::IsNullOrWhiteSpace($project.Name)) {
+        Write-Log 'INFO' 'Project removed due to missing title' @{ Id = $project.Id }
+        if ($project.PSObject.Properties['Id']) {
+            Remove-ProjectFromJson $project
+        }
+        return
+    }
+
+    if (-not $project.PSObject.Properties['Subject']) {
+        $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
+    }
+    if (-not $project.PSObject.Properties['Priority']) {
+        $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+    }
+
+    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    try {
+        if (-not $m.WaitOne(5000)) {
+          
+            return
+        }
+
+        $raw  = Get-Content $DataFile -Raw
+        $disk = $raw | ConvertFrom-Json
+
+        # Normalize container
+        $isArray = $false
+        if ($disk -is [System.Array]) {
+            $container = [PSCustomObject]@{ projects = $disk }; $isArray = $true
+        }
+        elseif ($disk.PSObject.Properties['projects']) {
+            $container = $disk
+        }
+        else {
+            $container = [PSCustomObject]@{ projects = @() }
+        }
+
+        $arr = if ($isArray) { $disk }
+               elseif ($container.projects -is [System.Array]) { $container.projects }
+               else { @($container.projects) }
+
+        # Ensure Id & Number
+        if (-not $project.PSObject.Properties['Id']) {
+            $project | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString()) -Force
+        }
+        if (-not $project.PSObject.Properties['Number']) {
+            $next = Get-NextTicketNumber
+            $project | Add-Member -NotePropertyName Number -NotePropertyValue $next -Force
+        }
+
+        # Update or add
+        $existing = $arr | Where-Object Id -eq $project.Id
+        if ($existing) {
+            if (-not $existing.PSObject.Properties['Number']) {
+                $existing | Add-Member -NotePropertyName Number -NotePropertyValue $project.Number -Force
+            }
+            $existing.Name        = $project.Name
+            $existing.Status      = $project.Status
+            $existing | Add-Member -NotePropertyName Priority -NotePropertyValue $project.Priority -Force
+            $existing.WorkLog     = $project.WorkLog
+            if (-not $existing.PSObject.Properties['Attachments']) {
+                $existing | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
+            }
+            $existing.Attachments = $project.Attachments
+        }
+        else {
+            $arr += [PSCustomObject]@{
+                Id           = $project.Id
+                Number       = $project.Number
+                Name         = $project.Name
+                Status       = $project.Status
+                Priority     = $project.Priority
+                WorkLog      = $project.WorkLog
+                Attachments  = $project.Attachments
+                CreationDate = $project.CreationDate
+            }
+        }
+
+        # Write back
+        if ($isArray) {
+            $arr | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
+        }
+        else {
+            $container.projects = $arr
+            $container | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
+        }
+
+        Write-Log 'INFO' 'Project saved' @{ Id = $project.Id; Number = $project.Number }
+    }
+    catch {
+        Write-Log 'ERROR' 'Exception in Save-ProjectToJson' @{ Error = $_.Exception.Message }
+        throw
+    }
+    finally {
+        $m.ReleaseMutex(); $m.Dispose()
+    }
 }
 
-function Remove-ProjectWrapper {
+function Get-NextTicketNumber {
+ 
+
+    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    try {
+        if (-not $m.WaitOne(5000)) {
+            
+            return 1
+        }
+        if (-not (Test-Path $DataFile)) { return 1 }
+
+        $raw   = Get-Content -Path $DataFile -Raw
+        $disk  = $raw | ConvertFrom-Json
+        $projects = if ($disk -is [System.Array]) { $disk }
+                    elseif ($disk.PSObject.Properties['projects']) { $disk.projects }
+                    else { @() }
+
+        $max = ($projects | Where-Object { $_.PSObject.Properties['Number'] } |
+                Measure-Object -Property Number -Maximum).Maximum
+        if (-not $max) { $max = 0 }
+        $next = [int]$max + 1
+
+      
+        return $next
+    }
+    catch {
+        Write-Log 'ERROR' 'Failed in Get-NextTicketNumber' @{ Error = $_.Exception.Message }
+        return 1
+    }
+    finally {
+        $m.ReleaseMutex(); $m.Dispose()
+    }
+}
+function Show-LogsWindow {
+    # Load LogsWindow.xaml
+    [xml]$lxaml = $LogsWindowXaml
+    $lxaml.Window.RemoveAttribute('x:Class')
+    $logWin = [System.Windows.Markup.XamlReader]::Load(
+        (New-Object System.Xml.XmlNodeReader $lxaml)
+    )
+
+    # Apply current theme resources so brushes like WindowBackgroundBrush resolve
+    $logWin.Resources.MergedDictionaries.Clear()
+    $xml = if ($global:UseDarkTheme) { $darkStyles } else { $lightStyles }
+    $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
+    $logWin.Resources.MergedDictionaries.Add($dict)
+
+    # Find its controls
+    $refreshBtn = $logWin.FindName("RefreshLogsButton")
+    $levelFilter = $logWin.FindName("LevelFilterComboBox")
+    $listView = $logWin.FindName("LogsListView")
+    $closeBtn = $logWin.FindName("CloseLogsButton")
+
+    # Function to (re)load logs from your Logs folder
+    $reloadLogs = {
+        # Grab all .log files from $LogsRoot and parse as JSON lines
+        $entries = Get-ChildItem $LogsRoot -Filter '*.log' |
+                   Sort-Object LastWriteTime -Descending |
+                   ForEach-Object {
+                       Get-Content $_.FullName | ForEach-Object {
+                           try { ConvertFrom-Json $_ } catch { $null }
+                       }
+                   } | Where-Object { $_ }
+
+        # Apply level filter
+        $sel = $levelFilter.SelectedItem.Content
+        if ($sel -and $sel -ne 'All Levels') {
+            $entries = $entries | Where-Object Level -eq $sel
+        }
+
+        # Bind into ListView
+        $listView.ItemsSource = $entries
+    }
+
+    # Wire buttons
+    $refreshBtn.Add_Click({ & $reloadLogs })
+    $levelFilter.Add_SelectionChanged({ & $reloadLogs })
+    $closeBtn.Add_Click({ $logWin.Close() })
+
+    # Center and show
+    $logWin.Owner = $MainWindow
+    # Pre-load once
+    & $reloadLogs
+    $logWin.ShowDialog() | Out-Null
+}
+
+function Remove-ProjectFromJson {
     param($project)
-    Remove-Project $project
+    Write-Log 'DEBUG' 'Entered Remove-ProjectFromJson' @{ Id = $project.Id }
+
+    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    try {
+        if (-not $m.WaitOne(5000)) {
+            Write-Log 'WARN' 'Timeout acquiring delete mutex' @{ Mutex = $mutexName }
+            return
+        }
+        $raw   = Get-Content $DataFile -Raw
+        $disk  = $raw | ConvertFrom-Json
+        $isArray = $disk -is [System.Array]
+        $container = if ($isArray) { [PSCustomObject]@{ projects = $disk } } else { $disk }
+        $arr = $container.projects | Where-Object Id -ne $project.Id
+
+        if ($isArray) {
+            $arr | ConvertTo-Json -Depth 5 -Compress | Set-Content $DataFile -Force
+        }
+        else {
+            $container.projects = $arr
+            $container | ConvertTo-Json -Depth 5 -Compress | Set-Content $DataFile -Force
+        }
+
+        Write-Log 'INFO' 'Project removed' @{ Id = $project.Id }
+    }
+    catch {
+        Write-Log 'ERROR' 'Exception in Remove-ProjectFromJson' @{ Error = $_.Exception.Message }
+        throw
+    }
+    finally {
+        $m.ReleaseMutex(); $m.Dispose()
+    }
 }
 
-function Sync-ProjectsFromDbWrapper {
-    Sync-ProjectsFromDb $ProjectsCollection
+function Sync-ProjectsFromJson {
+    
+
+    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    try {
+        if (-not $m.WaitOne(5000)) {
+            Write-Log 'WARN' 'Timeout acquiring reload mutex' @{ Mutex = $mutexName }
+            return
+        }
+        $raw    = Get-Content $DataFile -Raw
+        $parsed = $raw | ConvertFrom-Json
+        $plist  = if ($parsed -is [System.Array]) { $parsed }
+                 elseif ($parsed.PSObject.Properties['projects']) { $parsed.projects }
+                 else { @() }
+
+        
+        $ProjectsCollection.Clear()
+        $plist | ForEach-Object {
+            if (-not $_.PSObject.Properties['Priority']) {
+                $_ | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+            }
+            $ProjectsCollection.Add($_)
+        }
+        Apply-StatusOrder
+    }
+    catch {
+        Write-Log 'ERROR' 'Exception in Sync-ProjectsFromJson' @{ Error = $_.Exception.Message }
+        throw
+    }
+    finally {
+        $m.ReleaseMutex(); $m.Dispose()
+    }
 }
 
-
+# ──────────────────────────────────────────────────
 # 6. Load XAML & Styles from embedded here-strings
 # ──────────────────────────────────────────────────
 
@@ -1282,8 +1494,7 @@ $DateRangeFilter          = $MainWindow.FindName("DateRangeFilter")
 $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
-$SwitchShopMenuItem   = $MainWindow.FindName("SwitchShopMenuItem")
-$ManageShopsMenuItem   = $MainWindow.FindName("ManageShopsMenuItem")
+$ChangeDataFileMenuItem   = $MainWindow.FindName("ChangeDataFileMenuItem")
   $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
   $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
   $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
@@ -1333,7 +1544,7 @@ $DateRangeFilter.Add_SelectionChanged({
     $view.Refresh()
 })
 $RefreshButton.Add_Click({
-    Sync-ProjectsFromDbWrapper; $view.Refresh()
+    Sync-ProjectsFromJson; $view.Refresh()
 })
 
 $FilterAllMenuItem.Add_Click({
@@ -1353,22 +1564,27 @@ $FilterCompleteMenuItem.Add_Click({
     $view.Refresh()
 })
 
-$SwitchShopMenuItem.Add_Click({
-    Show-ShopSelection
-    Sync-ProjectsFromDbWrapper; $view.Refresh()
-})
-$ManageShopsMenuItem.Add_Click({
-    Show-ManageShopsWindow
-    Sync-ProjectsFromDbWrapper; $view.Refresh()
+$ChangeDataFileMenuItem.Add_Click({
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title            = "Select JSON file for projects"
+    $dlg.Filter           = "JSON Files (*.json)|*.json|All Files (*.*)|*.*"
+    $dlg.InitialDirectory = [System.IO.Path]::GetDirectoryName($global:JSONFile)
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $global:JSONFile = $dlg.FileName; $script:DataFile = $global:JSONFile
+        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+        Write-Log 'INFO' 'Data file changed' @{ File = $global:JSONFile }
+        Sync-ProjectsFromJson; $view.Refresh()
+    }
 })
 
 $DarkModeMenuItem.Add_Checked({
       Set-Theme $true
-      Set-ActiveShop $global:ActiveShop
+      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
   })
   $DarkModeMenuItem.Add_Unchecked({
       Set-Theme $false
-      Set-ActiveShop $global:ActiveShop
+      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
   })
 $ViewLogsMenuItem.Add_Click({
     Show-LogsWindow
@@ -1377,7 +1593,7 @@ $ViewLogsMenuItem.Add_Click({
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(3)
 $timer.Add_Tick({
-    Sync-ProjectsFromDbWrapper
+    Sync-ProjectsFromJson
     $view.Refresh()
 })
 $timer.Start()
@@ -1389,7 +1605,7 @@ $ProjectList.Add_MouseDoubleClick({
        
         $global:DetailWindowOpen = $true; $timer.Stop()
         Show-ProjectDetailWindow $ProjectList.SelectedItem
-        Sync-ProjectsFromDbWrapper; $view.Refresh()
+        Sync-ProjectsFromJson; $view.Refresh()
         $timer.Start(); $global:DetailWindowOpen = $false
     }
 })
@@ -1401,8 +1617,8 @@ $AddProjectButton.Add_Click({
             Name         = ""; Status = "Not Started"; Subject = ""; Priority = "Low";
             WorkLog      = @(); Attachments = @(); CreationDate = Get-Date
         }
-        if (Show-ProjectDetailWindow $new) { Save-ProjectWrapper $new }
-        Sync-ProjectsFromDbWrapper; $view.Refresh()
+        if (Show-ProjectDetailWindow $new) { Save-ProjectToJson $new }
+        Sync-ProjectsFromJson; $view.Refresh()
         $timer.Start(); $global:DetailWindowOpen = $false
     }
 })
@@ -1609,17 +1825,17 @@ function Show-ProjectDetailWindow {
                     $AttList.Items.Add($rel) | Out-Null
                 }
             }
-             Save-ProjectWrapper $project
+            Save-ProjectToJson $project
         }
     })
     $RemoveAttBtn.Add_Click({
         if ($AttList.SelectedItem) {
             $rel  = $AttList.SelectedItem
-            $full = Join-Path (Split-Path $global:DbPath) $rel
+            $full = Join-Path (Split-Path $DataFile) $rel
             if (Test-Path $full) { Remove-Item $full -Force }
             $AttList.Items.Remove($rel)
             $project.Attachments = $project.Attachments | Where-Object { $_ -ne $rel }
-             Save-ProjectWrapper $project
+            Save-ProjectToJson $project
         }
         else {
             [System.Windows.MessageBox]::Show(
@@ -1633,7 +1849,7 @@ function Show-ProjectDetailWindow {
     $AttList.Add_MouseDoubleClick({
         $sel = $AttList.SelectedItem
         if ($sel) {
-            $full = Join-Path (Split-Path $global:DbPath) $sel
+            $full = Join-Path (Split-Path $DataFile) $sel
             Start-Process $full
         }
     })
@@ -1650,33 +1866,50 @@ function Show-ProjectDetailWindow {
         ) {
             Write-Log 'INFO' 'Project deletion confirmed' @{ Id = $project.Id }
             $ProjectsCollection.Remove($project)
-            Remove-ProjectWrapper $project
+            Remove-ProjectFromJson $project
             $win.DialogResult = $true
             $win.Close()
         }
     })
 
-    # Transfer project to another shop
+    # Transfer project
     $TransferBtn.Add_Click({
         Add-Type -AssemblyName System.Windows.Forms
-        $form = New-Object System.Windows.Forms.Form
-        $form.Text = 'Transfer to Shop'
-        $combo = New-Object System.Windows.Forms.ComboBox
-        $combo.Dock = 'Top'
-        $combo.DataSource = Get-DistinctShops
-        $form.Controls.Add($combo)
-        $ok = New-Object System.Windows.Forms.Button
-        $ok.Text = 'OK'
-        $ok.Dock = 'Bottom'
-        $form.AcceptButton = $ok
-        $form.Controls.Add($ok)
-        if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            Transfer-Project $project $combo.SelectedItem
-            Write-Log 'INFO' 'Project transferred' @{ Id = $project.Id; Destination = $combo.SelectedItem }
-            $ProjectsCollection.Remove($project)
-            Sync-ProjectsFromDbWrapper
-            $win.DialogResult = $true
-            $win.Close()
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $destFile = $dlg.FileName
+            $origFile = $DataFile
+            $m = New-Object System.Threading.Mutex($false, $mutexName)
+            try {
+                if (-not $m.WaitOne(5000)) {
+                    Write-Log 'WARN' 'Timeout acquiring transfer mutex' @{ Mutex = $mutexName }
+                    return
+                }
+                $DataFile = $destFile
+                Save-ProjectToJson $project
+                $DataFile = $origFile
+                Remove-ProjectFromJson $project
+                $ProjectsCollection.Remove($project)
+                Sync-ProjectsFromJson
+                foreach ($rel in $project.Attachments) {
+                    $src = Join-Path (Split-Path $origFile) $rel
+                    $dst = Join-Path (Split-Path $destFile) $rel
+                    $dstDir = Split-Path $dst
+                    if (-not (Test-Path $dstDir)) { New-Item -Path $dstDir -ItemType Directory | Out-Null }
+                    if (Test-Path $src) { Move-Item -Path $src -Destination $dst -Force }
+                }
+                Write-Log 'INFO' 'Project transferred' @{ Id = $project.Id; Destination = $destFile }
+                $win.DialogResult = $true
+                $win.Close()
+            }
+            catch {
+                Write-Log 'ERROR' 'Failed to transfer project' @{ Id = $project.Id; Error = $_.Exception.Message }
+            }
+            finally {
+                $DataFile = $origFile
+                $m.ReleaseMutex(); $m.Dispose()
+            }
         }
     })
 
@@ -1697,7 +1930,7 @@ function Show-ProjectDetailWindow {
         }
         $project.Attachments = @()
         foreach ($i in $AttList.Items) { $project.Attachments += $i }
-         Save-ProjectWrapper $project
+        Save-ProjectToJson $project
         $win.DialogResult = $true
         $win.Close()
     })
