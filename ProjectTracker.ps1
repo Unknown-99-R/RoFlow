@@ -118,8 +118,8 @@ $MainWindowXaml = @'
             <MenuItem Header="Settings"
                       Style="{DynamicResource TopMenuItemStyle}"
                       ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
-                <MenuItem x:Name="ChangeDataFileMenuItem"
-          Header="Change Data File"
+                <MenuItem x:Name="ChangeShopMenuItem"
+          Header="Change Shop"
           Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
 <MenuItem x:Name="DarkModeMenuItem"
           Header="Dark Mode"
@@ -1009,6 +1009,8 @@ else {
     $ScriptDir = (Get-Location).ProviderPath
 }
 
+Add-Type -Path (Join-Path $ScriptDir 'LiteDB.dll')
+
 # 1a. Logging Setup
 $LogsRoot = Join-Path $ScriptDir 'Logs'
 if (-not (Test-Path $LogsRoot)) {
@@ -1039,45 +1041,28 @@ function Write-Log {
 
 Write-Log 'INFO' 'Logger initialized' @{ }
 
-# 3. Load/Save Config for JSON Path
+# 3. Load/Save Config for database path
 $configFile = Join-Path $ScriptDir "config.json"
 $global:UseDarkTheme = $false
-$configData = $null
+$global:DatabasePath = Join-Path $ScriptDir 'ProjectTracker.db'
 if (Test-Path $configFile) {
     try {
-        $configData     = Get-Content $configFile -Raw | ConvertFrom-Json
-        $global:JSONFile = $configData.JSONFilePath
-        if ($configData.PSObject.Properties['UseDarkTheme']) {
-            $global:UseDarkTheme = [bool]$configData.UseDarkTheme
-        }
+        $configData = Get-Content $configFile -Raw | ConvertFrom-Json
+        if ($configData.DatabasePath) { $global:DatabasePath = $configData.DatabasePath }
+        if ($configData.PSObject.Properties['UseDarkTheme']) { $global:UseDarkTheme = [bool]$configData.UseDarkTheme }
     }
     catch {
         Write-Log 'WARN' 'Failed to parse config.json' @{ File = $configFile; Error = $_.Exception.Message }
-        $global:JSONFile = $null
     }
 }
-if (-not $global:JSONFile) {
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title            = "Select JSON file for projects"
-    $dlg.Filter           = "JSON Files (*.json)|*.json|All Files (*.*)|*.*"
-    $dlg.InitialDirectory = [Environment]::GetFolderPath("MyDocuments")
-    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        Write-Log 'INFO' 'JSON file selected' @{ File = $dlg.FileName }
-        $global:JSONFile = $dlg.FileName
-        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } |
-            ConvertTo-Json -Depth 2 |
-            Set-Content $configFile
-    }
-    else {
-
-        exit 1
-    }
-}
-$DataFile = $global:JSONFile
+@{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } |
+    ConvertTo-Json -Depth 2 |
+    Set-Content $configFile -Force
+$DatabasePath = $global:DatabasePath
 
 # Attachments root folder
-$attachmentsRoot = Join-Path (Split-Path $DataFile) 'Attachments'
+$attachmentsRoot = Join-Path $ScriptDir 'Attachments'
+if (-not (Test-Path $attachmentsRoot)) { New-Item -Path $attachmentsRoot -ItemType Directory | Out-Null }
 
 # Mapping used to enforce a stable tile order
 $statusOrder = @{
@@ -1093,24 +1078,81 @@ function Apply-StatusOrder {
     }
 }
 
+# LiteDB helpers for shop selection
+$dbConfigFile = Join-Path $ScriptDir 'dbconfig.json'
+$global:CurrentShopId = $null
+
+function Load-LiteDbAssembly {
+    $dll = Join-Path $ScriptDir 'LiteDB.dll'
+    if (Test-Path $dll) { [Reflection.Assembly]::LoadFrom($dll) | Out-Null }
+}
+
+function Get-DatabasePath {
+    if (Test-Path $dbConfigFile) {
+        try {
+            $cfg = Get-Content $dbConfigFile -Raw | ConvertFrom-Json
+            if ($cfg.DbPath -and (Test-Path $cfg.DbPath)) { return $cfg.DbPath }
+        } catch {}
+    }
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title  = 'Select LiteDB database file'
+    $dlg.Filter = 'LiteDB Files (*.db)|*.db|All Files (*.*)|*.*'
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        @{ DbPath = $dlg.FileName } | ConvertTo-Json | Set-Content $dbConfigFile
+        return $dlg.FileName
+    }
+    throw 'Database path not selected.'
+}
+
+function Get-Shops {
+    Load-LiteDbAssembly
+    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
+    $db = [LiteDB.LiteDatabase]::new("FileName=$global:DbPath;ReadOnly=true")
+    try {
+        return $db.GetCollection('shops').FindAll()
+    } finally { $db.Dispose() }
+}
+
+function Show-ShopSelectionDialog {
+    $shops = Get-Shops | Sort-Object Name
+    if (-not $shops) { return $null }
+    Add-Type -AssemblyName System.Windows.Forms
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Select Shop'
+    $form.StartPosition = 'CenterScreen'
+    $list = New-Object System.Windows.Forms.ListBox
+    $list.DisplayMember = 'Name'
+    $list.Dock = 'Top'
+    foreach ($s in $shops) { $list.Items.Add($s) | Out-Null }
+    $form.Controls.Add($list)
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'OK'
+    $ok.Dock = 'Bottom'
+    $form.AcceptButton = $ok
+    $form.Controls.Add($ok)
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $list.SelectedItem._id
+    }
+    return $null
+}
+
 # 4. Load Existing Projects
 $ProjectsList = @()
-if (Test-Path $DataFile) {
+if (Test-Path $DatabasePath) {
     try {
-        $raw    = Get-Content $DataFile -Raw
-        $parsed = $raw | ConvertFrom-Json
-        if ($parsed -is [System.Array]) {
-            $ProjectsList = $parsed
+        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $shopsCol = $db.GetCollection('shops')
+        if ($shopsCol.Count() -eq 0) {
+            $shopsCol.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
         }
-        elseif ($parsed.PSObject.Properties['projects']) {
-            $ProjectsList = $parsed.projects
-        }
-       
+        $col = $db.GetCollection('tickets')
+        $ProjectsList = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
     }
     catch {
-        Write-Log 'ERROR' 'Failed to parse project JSON' @{ Error = $_.Exception.Message }
-        Write-Warning "Failed to parse JSON: $_"
+        Write-Log 'ERROR' 'Failed to load projects from database' @{ Error = $_.Exception.Message }
     }
+    finally { if ($db) { $db.Dispose() } }
 }
 foreach ($p in $ProjectsList) {
     if ($p.PSObject.Properties['CreationDate']) {
@@ -1128,184 +1170,70 @@ foreach ($p in $ProjectsList) {
     if (-not $p.PSObject.Properties['Attachments']) {
         $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
     }
+    if (-not $p.PSObject.Properties['ShopId']) {
+        $p | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force
+    }
 }
 
 $ProjectsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
 $ProjectsList | ForEach-Object { $ProjectsCollection.Add($_) }
 
-Apply-StatusOrder
-
-# Assign stable GUIDs if missing
-$needsSave = $false
-foreach ($p in $ProjectsCollection) {
-    if (-not $p.PSObject.Properties['Id']) {
-        $p | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString())
-        $needsSave = $true
-    }
-     if (-not $p.PSObject.Properties['Subject']) {
-        $p | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
-        $needsSave = $true
-    }
-    if (-not $p.PSObject.Properties['Attachments']) {
-        $p | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
-        $needsSave = $true
-    }
-    if (-not $p.PSObject.Properties['Priority']) {
-        $p | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
-        $needsSave = $true
-    }
-}
-if ($needsSave) {
-    $m = New-Object System.Threading.Mutex($false, $mutexName)
-    if ($m.WaitOne(5000)) {
-        try {
-            @{ projects = $ProjectsCollection } |
-                ConvertTo-Json -Depth 5 -Compress |
-                Set-Content -Path $DataFile -Force
-            Write-Log 'INFO' 'Assigned missing IDs and saved initial project list' @{ }
-        }
-        finally {
-            $m.ReleaseMutex(); $m.Dispose()
-        }
-    }
-}
-
 # 5. Sync Functions
-function Save-ProjectToJson {
+function Save-TicketToDb {
     param($project)
-    Write-Log 'DEBUG' 'Entered Save-ProjectToJson' @{ Id = $project.Id }
+    Write-Log 'DEBUG' 'Entered Save-TicketToDb' @{ Id = $project.Id }
 
     if ([string]::IsNullOrWhiteSpace($project.Name)) {
         Write-Log 'INFO' 'Project removed due to missing title' @{ Id = $project.Id }
-        if ($project.PSObject.Properties['Id']) {
-            Remove-ProjectFromJson $project
-        }
+        if ($project.PSObject.Properties['Id']) { Remove-TicketFromDb $project }
         return
     }
 
-    if (-not $project.PSObject.Properties['Subject']) {
-        $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
-    }
-    if (-not $project.PSObject.Properties['Priority']) {
-        $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
-    }
+    if (-not $project.PSObject.Properties['Subject']) { $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force }
+    if (-not $project.PSObject.Properties['Priority']) { $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force }
+    if (-not $project.PSObject.Properties['ShopId']) { $project | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force }
 
-    $m = New-Object System.Threading.Mutex($false, $mutexName)
     try {
-        if (-not $m.WaitOne(5000)) {
-          
-            return
-        }
+        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $col = $db.GetCollection('tickets')
 
-        $raw  = Get-Content $DataFile -Raw
-        $disk = $raw | ConvertFrom-Json
-
-        # Normalize container
-        $isArray = $false
-        if ($disk -is [System.Array]) {
-            $container = [PSCustomObject]@{ projects = $disk }; $isArray = $true
-        }
-        elseif ($disk.PSObject.Properties['projects']) {
-            $container = $disk
-        }
-        else {
-            $container = [PSCustomObject]@{ projects = @() }
-        }
-
-        $arr = if ($isArray) { $disk }
-               elseif ($container.projects -is [System.Array]) { $container.projects }
-               else { @($container.projects) }
-
-        # Ensure Id & Number
         if (-not $project.PSObject.Properties['Id']) {
             $project | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString()) -Force
         }
         if (-not $project.PSObject.Properties['Number']) {
-            $next = Get-NextTicketNumber
-            $project | Add-Member -NotePropertyName Number -NotePropertyValue $next -Force
+            $project | Add-Member -NotePropertyName Number -NotePropertyValue (Get-NextTicketNumber) -Force
         }
 
-        # Update or add
-        $existing = $arr | Where-Object Id -eq $project.Id
-        if ($existing) {
-            if (-not $existing.PSObject.Properties['Number']) {
-                $existing | Add-Member -NotePropertyName Number -NotePropertyValue $project.Number -Force
-            }
-            $existing.Name        = $project.Name
-            $existing.Status      = $project.Status
-            $existing | Add-Member -NotePropertyName Priority -NotePropertyValue $project.Priority -Force
-            $existing.WorkLog     = $project.WorkLog
-            if (-not $existing.PSObject.Properties['Attachments']) {
-                $existing | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
-            }
-            $existing.Attachments = $project.Attachments
-        }
-        else {
-            $arr += [PSCustomObject]@{
-                Id           = $project.Id
-                Number       = $project.Number
-                Name         = $project.Name
-                Status       = $project.Status
-                Priority     = $project.Priority
-                WorkLog      = $project.WorkLog
-                Attachments  = $project.Attachments
-                CreationDate = $project.CreationDate
-            }
-        }
-
-        # Write back
-        if ($isArray) {
-            $arr | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
-        }
-        else {
-            $container.projects = $arr
-            $container | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $DataFile -Force
-        }
+        $projCopy = $project | Select-Object *
+        $projCopy | Add-Member -NotePropertyName _id -NotePropertyValue $project.Id -Force
+        $json = $projCopy | ConvertTo-Json -Depth 5
+        $doc = [LiteDB.JsonSerializer]::Deserialize($json)
+        $col.Upsert($doc) | Out-Null
 
         Write-Log 'INFO' 'Project saved' @{ Id = $project.Id; Number = $project.Number }
     }
     catch {
-        Write-Log 'ERROR' 'Exception in Save-ProjectToJson' @{ Error = $_.Exception.Message }
+        Write-Log 'ERROR' 'Exception in Save-TicketToDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally {
-        $m.ReleaseMutex(); $m.Dispose()
-    }
+    finally { if ($db) { $db.Dispose() } }
 }
 
 function Get-NextTicketNumber {
- 
-
-    $m = New-Object System.Threading.Mutex($false, $mutexName)
     try {
-        if (-not $m.WaitOne(5000)) {
-            
-            return 1
-        }
-        if (-not (Test-Path $DataFile)) { return 1 }
-
-        $raw   = Get-Content -Path $DataFile -Raw
-        $disk  = $raw | ConvertFrom-Json
-        $projects = if ($disk -is [System.Array]) { $disk }
-                    elseif ($disk.PSObject.Properties['projects']) { $disk.projects }
-                    else { @() }
-
-        $max = ($projects | Where-Object { $_.PSObject.Properties['Number'] } |
-                Measure-Object -Property Number -Maximum).Maximum
+        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $col = $db.GetCollection('tickets')
+        $max = ($col.FindAll() | ForEach-Object { $_['Number'].RawValue } | Measure-Object -Maximum).Maximum
         if (-not $max) { $max = 0 }
-        $next = [int]$max + 1
-
-      
-        return $next
+        return ([int]$max + 1)
     }
     catch {
         Write-Log 'ERROR' 'Failed in Get-NextTicketNumber' @{ Error = $_.Exception.Message }
         return 1
     }
-    finally {
-        $m.ReleaseMutex(); $m.Dispose()
-    }
+    finally { if ($db) { $db.Dispose() } }
 }
+
 function Show-LogsWindow {
     # Load LogsWindow.xaml
     [xml]$lxaml = $LogsWindowXaml
@@ -1358,74 +1286,40 @@ function Show-LogsWindow {
     & $reloadLogs
     $logWin.ShowDialog() | Out-Null
 }
-
-function Remove-ProjectFromJson {
+function Remove-TicketFromDb {
     param($project)
-    Write-Log 'DEBUG' 'Entered Remove-ProjectFromJson' @{ Id = $project.Id }
-
-    $m = New-Object System.Threading.Mutex($false, $mutexName)
+    Write-Log 'DEBUG' 'Entered Remove-TicketFromDb' @{ Id = $project.Id }
     try {
-        if (-not $m.WaitOne(5000)) {
-            Write-Log 'WARN' 'Timeout acquiring delete mutex' @{ Mutex = $mutexName }
-            return
-        }
-        $raw   = Get-Content $DataFile -Raw
-        $disk  = $raw | ConvertFrom-Json
-        $isArray = $disk -is [System.Array]
-        $container = if ($isArray) { [PSCustomObject]@{ projects = $disk } } else { $disk }
-        $arr = $container.projects | Where-Object Id -ne $project.Id
-
-        if ($isArray) {
-            $arr | ConvertTo-Json -Depth 5 -Compress | Set-Content $DataFile -Force
-        }
-        else {
-            $container.projects = $arr
-            $container | ConvertTo-Json -Depth 5 -Compress | Set-Content $DataFile -Force
-        }
-
+        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $col = $db.GetCollection('tickets')
+        $col.Delete($project.Id) | Out-Null
         Write-Log 'INFO' 'Project removed' @{ Id = $project.Id }
     }
     catch {
-        Write-Log 'ERROR' 'Exception in Remove-ProjectFromJson' @{ Error = $_.Exception.Message }
+        Write-Log 'ERROR' 'Exception in Remove-TicketFromDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally {
-        $m.ReleaseMutex(); $m.Dispose()
-    }
+    finally { if ($db) { $db.Dispose() } }
 }
 
-function Sync-ProjectsFromJson {
-    
-
-    $m = New-Object System.Threading.Mutex($false, $mutexName)
+function Sync-TicketsFromDb {
     try {
-        if (-not $m.WaitOne(5000)) {
-            Write-Log 'WARN' 'Timeout acquiring reload mutex' @{ Mutex = $mutexName }
-            return
-        }
-        $raw    = Get-Content $DataFile -Raw
-        $parsed = $raw | ConvertFrom-Json
-        $plist  = if ($parsed -is [System.Array]) { $parsed }
-                 elseif ($parsed.PSObject.Properties['projects']) { $parsed.projects }
-                 else { @() }
+        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $col = $db.GetCollection('tickets')
+        $plist = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
 
-        
         $ProjectsCollection.Clear()
         $plist | ForEach-Object {
-            if (-not $_.PSObject.Properties['Priority']) {
-                $_ | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
-            }
+            if (-not $_.PSObject.Properties['Priority']) { $_ | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force }
             $ProjectsCollection.Add($_)
         }
         Apply-StatusOrder
     }
     catch {
-        Write-Log 'ERROR' 'Exception in Sync-ProjectsFromJson' @{ Error = $_.Exception.Message }
+        Write-Log 'ERROR' 'Exception in Sync-TicketsFromDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally {
-        $m.ReleaseMutex(); $m.Dispose()
-    }
+    finally { if ($db) { $db.Dispose() } }
 }
 
 # ──────────────────────────────────────────────────
@@ -1494,7 +1388,7 @@ $DateRangeFilter          = $MainWindow.FindName("DateRangeFilter")
 $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
-$ChangeDataFileMenuItem   = $MainWindow.FindName("ChangeDataFileMenuItem")
+$ChangeShopMenuItem       = $MainWindow.FindName("ChangeShopMenuItem")
   $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
   $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
   $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
@@ -1531,9 +1425,10 @@ $view.Filter = {
     }
     $textMatch = $nameMatch -or $numberMatch -or $subjectMatch
     $statusOk  = $global:StatusFilter -eq 'All' -or $p.Status -eq $global:StatusFilter
+    $shopOk    = [string]::IsNullOrEmpty($global:CurrentShopId) -or ($p.PSObject.Properties['ShopId'] -and $p.ShopId -eq $global:CurrentShopId)
     $cd = if ($p.CreationDate -is [pscustomobject]) { [datetime]$p.CreationDate.value } else { [datetime]$p.CreationDate }
-if ($start) { $textMatch -and $statusOk -and ($cd -ge $start) }
-else        { $textMatch -and $statusOk }
+if ($start) { $textMatch -and $statusOk -and $shopOk -and ($cd -ge $start) }
+else        { $textMatch -and $statusOk -and $shopOk }
 
 }
 
@@ -1544,7 +1439,7 @@ $DateRangeFilter.Add_SelectionChanged({
     $view.Refresh()
 })
 $RefreshButton.Add_Click({
-    Sync-ProjectsFromJson; $view.Refresh()
+    Sync-TicketsFromDb; $view.Refresh()
 })
 
 $FilterAllMenuItem.Add_Click({
@@ -1563,28 +1458,26 @@ $FilterCompleteMenuItem.Add_Click({
     $global:StatusFilter = 'Complete'; $StatusFilterMenuItem.Header = 'Status: Complete'
     $view.Refresh()
 })
-
-$ChangeDataFileMenuItem.Add_Click({
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title            = "Select JSON file for projects"
-    $dlg.Filter           = "JSON Files (*.json)|*.json|All Files (*.*)|*.*"
-    $dlg.InitialDirectory = [System.IO.Path]::GetDirectoryName($global:JSONFile)
-    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $global:JSONFile = $dlg.FileName; $script:DataFile = $global:JSONFile
-        @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
-        Write-Log 'INFO' 'Data file changed' @{ File = $global:JSONFile }
-        Sync-ProjectsFromJson; $view.Refresh()
+$ChangeShopMenuItem.Add_Click({
+    try {
+        $sel = Show-ShopSelectionDialog
+        if ($sel) {
+            $global:CurrentShopId = $sel
+            $view.Refresh()
+        }
+    } catch {
+        Write-Log 'ERROR' 'Failed to select shop' @{ Error = $_.Exception.Message }
     }
 })
+ # Change data file menu is obsolete in database-backed version
 
 $DarkModeMenuItem.Add_Checked({
       Set-Theme $true
-      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+      @{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
   })
   $DarkModeMenuItem.Add_Unchecked({
       Set-Theme $false
-      @{ JSONFilePath = $global:JSONFile; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
+      @{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
   })
 $ViewLogsMenuItem.Add_Click({
     Show-LogsWindow
@@ -1593,7 +1486,7 @@ $ViewLogsMenuItem.Add_Click({
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(3)
 $timer.Add_Tick({
-    Sync-ProjectsFromJson
+    Sync-TicketsFromDb
     $view.Refresh()
 })
 $timer.Start()
@@ -1604,8 +1497,8 @@ $ProjectList.Add_MouseDoubleClick({
     if (-not $global:DetailWindowOpen -and $ProjectList.SelectedItem) {
        
         $global:DetailWindowOpen = $true; $timer.Stop()
-        Show-ProjectDetailWindow $ProjectList.SelectedItem
-        Sync-ProjectsFromJson; $view.Refresh()
+         Show-ProjectDetailWindow $ProjectList.SelectedItem
+        Sync-TicketsFromDb; $view.Refresh()
         $timer.Start(); $global:DetailWindowOpen = $false
     }
 })
@@ -1615,10 +1508,10 @@ $AddProjectButton.Add_Click({
         $global:DetailWindowOpen = $true; $timer.Stop()
         $new = [PSCustomObject]@{
             Name         = ""; Status = "Not Started"; Subject = ""; Priority = "Low";
-            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date
+            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date; ShopId = 1
         }
-        if (Show-ProjectDetailWindow $new) { Save-ProjectToJson $new }
-        Sync-ProjectsFromJson; $view.Refresh()
+        if (Show-ProjectDetailWindow $new) { Save-TicketToDb $new }
+        Sync-TicketsFromDb; $view.Refresh()
         $timer.Start(); $global:DetailWindowOpen = $false
     }
 })
@@ -1697,6 +1590,9 @@ function Show-ProjectDetailWindow {
     }
     if (-not $project.PSObject.Properties['Priority']) {
         $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force
+    }
+    if (-not $project.PSObject.Properties['ShopId']) {
+        $project | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force
     }
     # ────────────────────────────────────────────
 
@@ -1811,31 +1707,31 @@ function Show-ProjectDetailWindow {
         $dlg = New-Object System.Windows.Forms.OpenFileDialog
         $dlg.Multiselect = $true
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $ticketDir = Join-Path $attachmentsRoot $project.Id
+            $ticketDir = Join-Path $attachmentsRoot (Join-Path $project.ShopId $project.Id)
             if (-not (Test-Path $ticketDir)) {
-                New-Item -Path $ticketDir -ItemType Directory | Out-Null
+                New-Item -Path $ticketDir -ItemType Directory -Force | Out-Null
             }
             foreach ($f in $dlg.FileNames) {
                 $leaf = [IO.Path]::GetFileName($f)
                 $dest = Join-Path $ticketDir $leaf
                 Copy-Item $f $dest -Force
-                $rel = Join-Path 'Attachments' (Join-Path $project.Id $leaf)
+                 $rel = Join-Path 'Attachments' (Join-Path $project.ShopId (Join-Path $project.Id $leaf))
                 if ($project.Attachments -notcontains $rel) {
                     $project.Attachments += $rel
                     $AttList.Items.Add($rel) | Out-Null
                 }
             }
-            Save-ProjectToJson $project
+            Save-TicketToDb $project
         }
     })
     $RemoveAttBtn.Add_Click({
         if ($AttList.SelectedItem) {
             $rel  = $AttList.SelectedItem
-            $full = Join-Path (Split-Path $DataFile) $rel
+            $full = Join-Path $ScriptDir $rel
             if (Test-Path $full) { Remove-Item $full -Force }
             $AttList.Items.Remove($rel)
             $project.Attachments = $project.Attachments | Where-Object { $_ -ne $rel }
-            Save-ProjectToJson $project
+            Save-TicketToDb $project
         }
         else {
             [System.Windows.MessageBox]::Show(
@@ -1849,7 +1745,7 @@ function Show-ProjectDetailWindow {
     $AttList.Add_MouseDoubleClick({
         $sel = $AttList.SelectedItem
         if ($sel) {
-            $full = Join-Path (Split-Path $DataFile) $sel
+            $full = Join-Path $ScriptDir $sel
             Start-Process $full
         }
     })
@@ -1866,52 +1762,14 @@ function Show-ProjectDetailWindow {
         ) {
             Write-Log 'INFO' 'Project deletion confirmed' @{ Id = $project.Id }
             $ProjectsCollection.Remove($project)
-            Remove-ProjectFromJson $project
+            Remove-TicketFromDb $project
             $win.DialogResult = $true
             $win.Close()
         }
     })
 
     # Transfer project
-    $TransferBtn.Add_Click({
-        Add-Type -AssemblyName System.Windows.Forms
-        $dlg = New-Object System.Windows.Forms.OpenFileDialog
-        $dlg.Filter = 'JSON Files (*.json)|*.json|All Files (*.*)|*.*'
-        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $destFile = $dlg.FileName
-            $origFile = $DataFile
-            $m = New-Object System.Threading.Mutex($false, $mutexName)
-            try {
-                if (-not $m.WaitOne(5000)) {
-                    Write-Log 'WARN' 'Timeout acquiring transfer mutex' @{ Mutex = $mutexName }
-                    return
-                }
-                $DataFile = $destFile
-                Save-ProjectToJson $project
-                $DataFile = $origFile
-                Remove-ProjectFromJson $project
-                $ProjectsCollection.Remove($project)
-                Sync-ProjectsFromJson
-                foreach ($rel in $project.Attachments) {
-                    $src = Join-Path (Split-Path $origFile) $rel
-                    $dst = Join-Path (Split-Path $destFile) $rel
-                    $dstDir = Split-Path $dst
-                    if (-not (Test-Path $dstDir)) { New-Item -Path $dstDir -ItemType Directory | Out-Null }
-                    if (Test-Path $src) { Move-Item -Path $src -Destination $dst -Force }
-                }
-                Write-Log 'INFO' 'Project transferred' @{ Id = $project.Id; Destination = $destFile }
-                $win.DialogResult = $true
-                $win.Close()
-            }
-            catch {
-                Write-Log 'ERROR' 'Failed to transfer project' @{ Id = $project.Id; Error = $_.Exception.Message }
-            }
-            finally {
-                $DataFile = $origFile
-                $m.ReleaseMutex(); $m.Dispose()
-            }
-        }
-    })
+    # Transfer functionality removed in database-backed version
 
     # Save & Cancel
     $SaveBtn.Add_Click({
@@ -1930,7 +1788,7 @@ function Show-ProjectDetailWindow {
         }
         $project.Attachments = @()
         foreach ($i in $AttList.Items) { $project.Attachments += $i }
-        Save-ProjectToJson $project
+        Save-TicketToDb $project
         $win.DialogResult = $true
         $win.Close()
     })
