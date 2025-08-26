@@ -4,7 +4,7 @@ param()
 
 function Get-AESKey {
     # Exactly 32 characters = 32 bytes = AES-256
-    $key = "ThisIsARobiKeyUnknow9900@!!9900"  # ← customize this, total 32 chars
+    $key = "ThisIsARobiKeyUnknow9900@!!99000"  # ← customize this, total 32 chars
     return [System.Text.Encoding]::UTF8.GetBytes($key)
 }
 
