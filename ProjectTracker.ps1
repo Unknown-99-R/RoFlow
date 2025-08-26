@@ -1090,7 +1090,7 @@ Write-Log 'INFO' 'Logger initialized' @{ }
 
 # 3. Database and shop configuration
 $configFile = Join-Path $ScriptDir "config.json"
-. (Join-Path $ScriptDir 'LiteDbUtils.ps1')
+Import-Module (Join-Path $ScriptDir 'LiteDbUtils.psm1') -Force
 Initialize-Database
 $global:ActiveShop = Get-ActiveShop
 $global:UseDarkTheme = $false
