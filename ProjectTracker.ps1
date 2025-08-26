@@ -121,6 +121,9 @@ $MainWindowXaml = @'
                 <MenuItem x:Name="ChangeShopMenuItem"
           Header="Change Shop"
           Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+                <MenuItem x:Name="ManageShopsMenuItem"
+          Header="Manage Shops"
+          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
 <MenuItem x:Name="DarkModeMenuItem"
           Header="Dark Mode"
           IsCheckable="True"
@@ -1134,7 +1137,98 @@ function Show-ShopSelectionDialog {
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         return $list.SelectedItem._id
     }
-    return $null
+     return $null
+}
+
+function Add-Shop {
+    param([string]$name)
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    Load-LiteDbAssembly
+    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
+    $db = [LiteDB.LiteDatabase]::new($global:DbPath)
+    try {
+        $col = $db.GetCollection('shops')
+        $max = ($col.FindAll() | ForEach-Object { $_._id } | Measure-Object -Maximum).Maximum
+        if (-not $max) { $max = 0 }
+        $col.Insert([LiteDB.BsonDocument]@{ _id = ([int]$max + 1); Name = $name }) | Out-Null
+    } finally { $db.Dispose() }
+}
+
+function Remove-Shop {
+    param([int]$id)
+    Load-LiteDbAssembly
+    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
+    if ($id -eq 1) { return }
+    $db = [LiteDB.LiteDatabase]::new($global:DbPath)
+    try {
+        $db.GetCollection('shops').Delete($id) | Out-Null
+        if ($global:CurrentShopId -eq $id) { $global:CurrentShopId = $null }
+    } finally { $db.Dispose() }
+}
+
+function Show-ShopManagementDialog {
+    Add-Type -AssemblyName System.Windows.Forms
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Manage Shops'
+    $form.StartPosition = 'CenterScreen'
+    $form.Width = 300
+    $form.Height = 400
+
+    $list = New-Object System.Windows.Forms.ListBox
+    $list.DisplayMember = 'Name'
+    $list.Dock = 'Top'
+    $list.Height = 300
+    $form.Controls.Add($list)
+
+    $refresh = {
+        $list.Items.Clear()
+        Get-Shops | Sort-Object Name | ForEach-Object { $list.Items.Add($_) | Out-Null }
+    }
+    & $refresh
+
+    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $panel.Dock = 'Bottom'
+    $panel.Height = 40
+    $form.Controls.Add($panel)
+
+    $nameBox = New-Object System.Windows.Forms.TextBox
+    $nameBox.Width = 120
+    $panel.Controls.Add($nameBox)
+
+    $addBtn = New-Object System.Windows.Forms.Button
+    $addBtn.Text = 'Add'
+    $addBtn.add_Click({
+        $n = $nameBox.Text.Trim()
+        if ($n) {
+            Add-Shop $n
+            $nameBox.Clear()
+            & $refresh
+        }
+    })
+    $panel.Controls.Add($addBtn)
+
+    $delBtn = New-Object System.Windows.Forms.Button
+    $delBtn.Text = 'Delete'
+    $delBtn.add_Click({
+        if ($list.SelectedItem) {
+            $id = $list.SelectedItem._id
+            if ($id -eq 1) {
+                [System.Windows.Forms.MessageBox]::Show('Default shop cannot be deleted.')
+            } else {
+                Remove-Shop $id
+                & $refresh
+            }
+        }
+    })
+    $panel.Controls.Add($delBtn)
+
+    $closeBtn = New-Object System.Windows.Forms.Button
+    $closeBtn.Text = 'Close'
+    $closeBtn.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $panel.Controls.Add($closeBtn)
+    $form.AcceptButton = $closeBtn
+
+    $null = $form.ShowDialog()
 }
 
 # 4. Load Existing Projects
@@ -1389,6 +1483,7 @@ $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
 $ChangeShopMenuItem       = $MainWindow.FindName("ChangeShopMenuItem")
+$ManageShopsMenuItem      = $MainWindow.FindName("ManageShopsMenuItem")
   $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
   $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
   $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
@@ -1469,6 +1564,14 @@ $ChangeShopMenuItem.Add_Click({
         Write-Log 'ERROR' 'Failed to select shop' @{ Error = $_.Exception.Message }
     }
 })
+ $ManageShopsMenuItem.Add_Click({
+    try {
+        Show-ShopManagementDialog
+        $view.Refresh()
+    } catch {
+        Write-Log 'ERROR' 'Failed to manage shops' @{ Error = $_.Exception.Message }
+    }
+ })
  # Change data file menu is obsolete in database-backed version
 
 $DarkModeMenuItem.Add_Checked({
