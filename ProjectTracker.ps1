@@ -1136,15 +1136,20 @@ function Get-DatabasePath {
             if ($cfg.DbPath -and (Test-Path $cfg.DbPath)) { return $cfg.DbPath }
         } catch {}
     }
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title  = 'Select LiteDB database file'
-    $dlg.Filter = 'LiteDB Files (*.db)|*.db|All Files (*.*)|*.*'
-    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        @{ DbPath = $dlg.FileName } | ConvertTo-Json | Set-Content $dbConfigFile
-        return $dlg.FileName
+
+    $default = Join-Path $ScriptDir 'ProjectTracker.db'
+    if (-not (Test-Path $default)) {
+        Load-LiteDbAssembly
+        $db = [LiteDB.LiteDatabase]::new($default)
+        try {
+            $shops = $db.GetCollection('shops')
+            if ($shops.Count() -eq 0) {
+                $shops.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
+            }
+        } finally { $db.Dispose() }
     }
-    throw 'Database path not selected.'
+    @{ DbPath = $default } | ConvertTo-Json | Set-Content $dbConfigFile
+    return $default
 }
 
 function Get-Shops {
