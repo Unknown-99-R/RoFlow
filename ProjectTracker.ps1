@@ -1,5 +1,12 @@
 param()
 
+# Relaunch in STA mode if not already
+if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+    Start-Process powershell -ArgumentList "-NoProfile","-STA","-ExecutionPolicy","Bypass","-File","`"$PSCommandPath`"" -WindowStyle Normal
+    exit
+}
+
+
 # ───────────────────────────────────────────────────────────────────
 # EMBEDDED MAIN WINDOW XAML
 # ───────────────────────────────────────────────────────────────────
@@ -1053,6 +1060,58 @@ else {
 
 Add-Type -Path (Join-Path $ScriptDir 'LiteDB.dll')
 
+# Use a single DB file for everything
+$DatabasePath = Join-Path $ScriptDir 'ProjectTracker.db'
+# Open one shared LiteDB instance for the whole app
+$global:Db = [LiteDB.LiteDatabase]::new("Filename=$DatabasePath;Connection=shared")
+
+# Create DB and required collections/default rows if needed
+
+function Ensure-Database {
+    $db = $global:Db
+
+    $shops = $db.GetCollection('shops')
+    if ($shops.Count() -eq 0) {
+        $shops.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
+    }
+
+    $settings = $db.GetCollection('settings')
+
+    if (-not $settings.FindById('UseDarkTheme')) {
+        $settings.Upsert([LiteDB.BsonDocument]@{ _id='UseDarkTheme'; Key='UseDarkTheme'; Value=$false }) | Out-Null
+    }
+    if (-not $settings.FindById('CurrentShopId')) {
+        $settings.Upsert([LiteDB.BsonDocument]@{ _id='CurrentShopId'; Key='CurrentShopId'; Value=1 }) | Out-Null
+    }
+}
+
+
+
+function Get-Setting {
+    param([string]$Key, $Default = $null)
+    $col = $global:Db.GetCollection('settings')
+    $doc = $col.FindById($Key)
+    if ($doc) { return $doc['Value'].RawValue }
+    return $Default
+}
+
+function Set-Setting {
+    param([string]$Key, $Value)
+    $col = $global:Db.GetCollection('settings')
+    $doc = [LiteDB.BsonDocument]::new()
+    $doc['_id']  = [LiteDB.BsonValue]::new($Key)
+    $doc['Key']  = [LiteDB.BsonValue]::new($Key)
+    $doc['Value']= [LiteDB.BsonValue]::new($Value)
+    $col.Upsert($doc) | Out-Null
+}
+
+
+Ensure-Database
+
+# Load settings from DB
+$global:UseDarkTheme  = [bool](Get-Setting 'UseDarkTheme' $false)
+$global:CurrentShopId = [int](Get-Setting 'CurrentShopId' 1)
+
 # 1a. Logging Setup
 $LogsRoot = Join-Path $ScriptDir 'Logs'
 if (-not (Test-Path $LogsRoot)) {
@@ -1083,24 +1142,6 @@ function Write-Log {
 
 Write-Log 'INFO' 'Logger initialized' @{ }
 
-# 3. Load/Save Config for database path
-$configFile = Join-Path $ScriptDir "config.json"
-$global:UseDarkTheme = $false
-$global:DatabasePath = Join-Path $ScriptDir 'ProjectTracker.db'
-if (Test-Path $configFile) {
-    try {
-        $configData = Get-Content $configFile -Raw | ConvertFrom-Json
-        if ($configData.DatabasePath) { $global:DatabasePath = $configData.DatabasePath }
-        if ($configData.PSObject.Properties['UseDarkTheme']) { $global:UseDarkTheme = [bool]$configData.UseDarkTheme }
-    }
-    catch {
-        Write-Log 'WARN' 'Failed to parse config.json' @{ File = $configFile; Error = $_.Exception.Message }
-    }
-}
-@{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } |
-    ConvertTo-Json -Depth 2 |
-    Set-Content $configFile -Force
-$DatabasePath = $global:DatabasePath
 
 # Attachments root folder
 $attachmentsRoot = Join-Path $ScriptDir 'Attachments'
@@ -1112,6 +1153,17 @@ $statusOrder = @{
     'Ongoing'     = 1  
     'Complete'    = 2
 }
+function Convert-LiteDbDate {
+    param($v)
+    if ($v -is [datetime]) { return $v }
+    if ($v -is [pscustomobject] -and $v.PSObject.Properties['value']) { $v = $v.value }
+    if ($v -is [string] -and $v -match '^/Date\((\d+)\)/$') {
+        $ms = [int64]$matches[1]
+        return [DateTimeOffset]::FromUnixTimeMilliseconds($ms).LocalDateTime
+    }
+    if ($v -is [string]) { return [datetime]::Parse($v) }
+    try { return [datetime]$v } catch { return (Get-Date) }
+}
 
 function Apply-StatusOrder {
     foreach ($p in $ProjectsCollection) {
@@ -1120,46 +1172,16 @@ function Apply-StatusOrder {
     }
 }
 
-# LiteDB helpers for shop selection
-$dbConfigFile = Join-Path $ScriptDir 'dbconfig.json'
-$global:CurrentShopId = $null
-
-function Load-LiteDbAssembly {
-    $dll = Join-Path $ScriptDir 'LiteDB.dll'
-    if (Test-Path $dll) { [Reflection.Assembly]::LoadFrom($dll) | Out-Null }
-}
-
-function Get-DatabasePath {
-    if (Test-Path $dbConfigFile) {
-        try {
-            $cfg = Get-Content $dbConfigFile -Raw | ConvertFrom-Json
-            if ($cfg.DbPath -and (Test-Path $cfg.DbPath)) { return $cfg.DbPath }
-        } catch {}
-    }
-
-    $default = Join-Path $ScriptDir 'ProjectTracker.db'
-    if (-not (Test-Path $default)) {
-        Load-LiteDbAssembly
-        $db = [LiteDB.LiteDatabase]::new($default)
-        try {
-            $shops = $db.GetCollection('shops')
-            if ($shops.Count() -eq 0) {
-                $shops.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
-            }
-        } finally { $db.Dispose() }
-    }
-    @{ DbPath = $default } | ConvertTo-Json | Set-Content $dbConfigFile
-    return $default
-}
 
 function Get-Shops {
-    Load-LiteDbAssembly
-    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
-    $db = [LiteDB.LiteDatabase]::new("FileName=$global:DbPath;ReadOnly=true")
-    try {
-        return $db.GetCollection('shops').FindAll()
-    } finally { $db.Dispose() }
+    $raw = $global:Db.GetCollection('shops').FindAll()
+    return $raw | ForEach-Object {
+        [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json
+    }
 }
+
+
+
 
 function Show-ShopSelectionDialog {
     $shops = Get-Shops | Sort-Object Name
@@ -1173,58 +1195,100 @@ function Show-ShopSelectionDialog {
     $list.Dock = 'Top'
     foreach ($s in $shops) { $list.Items.Add($s) | Out-Null }
     $form.Controls.Add($list)
-    $ok = New-Object System.Windows.Forms.Button
+     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = 'OK'
     $ok.Dock = 'Bottom'
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
     $form.AcceptButton = $ok
     $form.Controls.Add($ok)
-    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+
+    # Allow double click to select
+    $list.Add_DoubleClick({
+        if ($list.SelectedItem) {
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        }
+    })
+
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $list.SelectedItem) {
         return $list.SelectedItem._id
     }
-     return $null
+    return $null
 }
 
 function Add-Shop {
     param([string]$name)
+    $name = $name.Trim()
     if ([string]::IsNullOrWhiteSpace($name)) { return }
-    Load-LiteDbAssembly
-    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
-    $db = [LiteDB.LiteDatabase]::new($global:DbPath)
-    try {
-        $col = $db.GetCollection('shops')
-        $max = ($col.FindAll() | ForEach-Object { $_._id } | Measure-Object -Maximum).Maximum
-        if (-not $max) { $max = 0 }
-        $col.Insert([LiteDB.BsonDocument]@{ _id = ([int]$max + 1); Name = $name }) | Out-Null
-    } finally { $db.Dispose() }
+
+    $col = $global:Db.GetCollection('shops')
+
+    # Exists using Query.EQ (no string predicates)
+    $exists = $col.Count([LiteDB.Query]::EQ('Name', [LiteDB.BsonValue]::new($name))) -gt 0
+    if ($exists) { return }
+
+    # Next integer id
+    $max = ($col.FindAll() | ForEach-Object { $_['_id'].RawValue } | Measure-Object -Maximum).Maximum
+    if (-not $max) { $max = 0 }
+
+    $doc = [LiteDB.BsonDocument]::new()
+    $doc['_id'] = [LiteDB.BsonValue]::new([int]$max + 1)
+    $doc['Name'] = [LiteDB.BsonValue]::new($name)
+    [void]$col.Insert($doc)
 }
+
+
+
 
 function Remove-Shop {
     param([int]$id)
-    Load-LiteDbAssembly
-    if (-not $global:DbPath) { $global:DbPath = Get-DatabasePath }
-    if ($id -eq 1) { return }
-    $db = [LiteDB.LiteDatabase]::new($global:DbPath)
-    try {
-        $db.GetCollection('shops').Delete($id) | Out-Null
-        if ($global:CurrentShopId -eq $id) { $global:CurrentShopId = $null }
-    } finally { $db.Dispose() }
+    if ($id -eq 1) { return }  # never delete Default
+
+    $col = $global:Db.GetCollection('shops')
+    $col.Delete($id) | Out-Null
+
+    if ($global:CurrentShopId -eq $id) {
+        $global:CurrentShopId = 1
+        Set-Setting 'CurrentShopId' 1
+    }
 }
 
+
+
 function Show-ShopManagementDialog {
+    # 1) Load the window XAML as XML
     [xml]$sxaml = $ManageShopsWindowXaml
     $sxaml.Window.RemoveAttribute('x:Class')
+
+    # 2) Merge the active theme resources INTO the XAML BEFORE loading
+    $stylesXml = if ($global:UseDarkTheme) { $darkStyles } else { $lightStyles }
+    $ns        = $sxaml.DocumentElement.NamespaceURI
+    $winElem   = $sxaml.DocumentElement
+
+    $resElem = $sxaml.CreateElement("Window.Resources", $ns)
+    $rdElem  = $sxaml.CreateElement("ResourceDictionary", $ns)
+
+    foreach ($node in $stylesXml.ResourceDictionary.ChildNodes) {
+        if ($node.NodeType -eq 'Element') {
+            $rdElem.AppendChild($sxaml.ImportNode($node, $true)) | Out-Null
+        }
+    }
+    $resElem.AppendChild($rdElem) | Out-Null
+
+    # insert resources before the first visual child so StaticResource can resolve
+    $firstChild = $winElem.ChildNodes |
+        Where-Object { $_.NodeType -eq 'Element' } |
+        Select-Object -First 1
+    $winElem.InsertBefore($resElem, $firstChild) | Out-Null
+
+    # 3) Now load the window (resources are already present)
     $win = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $sxaml))
 
-    $win.Resources.MergedDictionaries.Clear()
-    $xml = if ($global:UseDarkTheme) { $darkStyles } else { $lightStyles }
-    $dict = [System.Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xml))
-    $win.Resources.MergedDictionaries.Add($dict)
-
-    $list    = $win.FindName("ShopsListBox")
-    $nameBox = $win.FindName("NewShopTextBox")
-    $addBtn  = $win.FindName("AddShopButton")
-    $delBtn  = $win.FindName("DeleteShopButton")
-    $closeBtn= $win.FindName("CloseShopButton")
+    # 4) Wire controls/handlers (same as before)
+    $list     = $win.FindName("ShopsListBox")
+    $nameBox  = $win.FindName("NewShopTextBox")
+    $addBtn   = $win.FindName("AddShopButton")
+    $delBtn   = $win.FindName("DeleteShopButton")
+    $closeBtn = $win.FindName("CloseShopButton")
 
     $refresh = {
         $list.Items.Clear()
@@ -1233,11 +1297,7 @@ function Show-ShopManagementDialog {
 
     $addBtn.Add_Click({
         $n = $nameBox.Text.Trim()
-        if ($n) {
-            Add-Shop $n
-            $nameBox.Clear()
-            & $refresh
-        }
+        if ($n) { Add-Shop $n; $nameBox.Clear(); & $refresh }
     })
 
     $delBtn.Add_Click({
@@ -1264,29 +1324,23 @@ function Show-ShopManagementDialog {
 $ProjectsList = @()
 if (Test-Path $DatabasePath) {
     try {
-        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
+        $db = $global:Db
         $shopsCol = $db.GetCollection('shops')
         if ($shopsCol.Count() -eq 0) {
             $shopsCol.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
         }
         $col = $db.GetCollection('tickets')
         $ProjectsList = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
-    }
-    catch {
+    } catch {
         Write-Log 'ERROR' 'Failed to load projects from database' @{ Error = $_.Exception.Message }
     }
-    finally { if ($db) { $db.Dispose() } }
 }
+
 foreach ($p in $ProjectsList) {
     if ($p.PSObject.Properties['CreationDate']) {
-        $cd = $p.CreationDate
-        if ($cd -is [string]) {
-            $p.CreationDate = [DateTime]$cd
-        }
-        elseif ($cd -is [PSCustomObject] -and $cd.value) {
-            $p.CreationDate = [DateTime]$cd.value
-        }
-    }
+    $p.CreationDate = Convert-LiteDbDate $p.CreationDate
+}
+
     if (-not $p.PSObject.Properties['Subject']) {
         $p | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force
     }
@@ -1312,50 +1366,47 @@ function Save-TicketToDb {
         return
     }
 
-    if (-not $project.PSObject.Properties['Subject']) { $project | Add-Member -NotePropertyName Subject -NotePropertyValue '' -Force }
+    if (-not $project.PSObject.Properties['Subject'])  { $project | Add-Member -NotePropertyName Subject  -NotePropertyValue ''    -Force }
     if (-not $project.PSObject.Properties['Priority']) { $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force }
-    if (-not $project.PSObject.Properties['ShopId']) { $project | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force }
+    if (-not $project.PSObject.Properties['ShopId'])   { $project | Add-Member -NotePropertyName ShopId   -NotePropertyValue 1     -Force }
 
     try {
-        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
-        $col = $db.GetCollection('tickets')
+        $col = $global:Db.GetCollection('tickets')
 
-        if (-not $project.PSObject.Properties['Id']) {
-            $project | Add-Member -NotePropertyName Id -NotePropertyValue ([guid]::NewGuid().ToString()) -Force
-        }
-        if (-not $project.PSObject.Properties['Number']) {
-            $project | Add-Member -NotePropertyName Number -NotePropertyValue (Get-NextTicketNumber) -Force
-        }
+        if (-not $project.PSObject.Properties['Id'])     { $project | Add-Member -NotePropertyName Id     -NotePropertyValue ([guid]::NewGuid().ToString()) -Force }
+        if (-not $project.PSObject.Properties['Number']) { $project | Add-Member -NotePropertyName Number -NotePropertyValue (Get-NextTicketNumber)        -Force }
 
         $projCopy = $project | Select-Object *
         $projCopy | Add-Member -NotePropertyName _id -NotePropertyValue $project.Id -Force
         $json = $projCopy | ConvertTo-Json -Depth 5
-        $doc = [LiteDB.JsonSerializer]::Deserialize($json)
-        $col.Upsert($doc) | Out-Null
+        $doc  = [LiteDB.JsonSerializer]::Deserialize($json)
+
+        if ($doc -ne $null) {
+    [void]$col.Upsert($doc)
+} else {
+    Write-Log 'ERROR' 'Ticket document was null during Upsert' @{ Id = $project.Id }
+}
 
         Write-Log 'INFO' 'Project saved' @{ Id = $project.Id; Number = $project.Number }
-    }
-    catch {
+    } catch {
         Write-Log 'ERROR' 'Exception in Save-TicketToDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally { if ($db) { $db.Dispose() } }
 }
+
 
 function Get-NextTicketNumber {
     try {
-        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
-        $col = $db.GetCollection('tickets')
+        $col = $global:Db.GetCollection('tickets')
         $max = ($col.FindAll() | ForEach-Object { $_['Number'].RawValue } | Measure-Object -Maximum).Maximum
         if (-not $max) { $max = 0 }
         return ([int]$max + 1)
-    }
-    catch {
+    } catch {
         Write-Log 'ERROR' 'Failed in Get-NextTicketNumber' @{ Error = $_.Exception.Message }
         return 1
     }
-    finally { if ($db) { $db.Dispose() } }
 }
+
 
 function Show-LogsWindow {
     # Load LogsWindow.xaml
@@ -1413,37 +1464,49 @@ function Remove-TicketFromDb {
     param($project)
     Write-Log 'DEBUG' 'Entered Remove-TicketFromDb' @{ Id = $project.Id }
     try {
-        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
-        $col = $db.GetCollection('tickets')
+        $col = $global:Db.GetCollection('tickets')
         $col.Delete($project.Id) | Out-Null
         Write-Log 'INFO' 'Project removed' @{ Id = $project.Id }
-    }
-    catch {
+    } catch {
         Write-Log 'ERROR' 'Exception in Remove-TicketFromDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally { if ($db) { $db.Dispose() } }
 }
+
 
 function Sync-TicketsFromDb {
     try {
-        $db = New-Object LiteDB.LiteDatabase($DatabasePath)
-        $col = $db.GetCollection('tickets')
+        $col = $global:Db.GetCollection('tickets')
         $plist = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
 
-        $ProjectsCollection.Clear()
-        $plist | ForEach-Object {
-            if (-not $_.PSObject.Properties['Priority']) { $_ | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force }
-            $ProjectsCollection.Add($_)
-        }
-        Apply-StatusOrder
+      $ProjectsCollection.Clear()
+$plist | ForEach-Object {
+    if ($_.PSObject.Properties['CreationDate']) {
+        $_.CreationDate = Convert-LiteDbDate $_.CreationDate
     }
-    catch {
+
+    if (-not $_.PSObject.Properties['Priority']) { $_ | Add-Member -NotePropertyName Priority    -NotePropertyValue 'Low' -Force }
+    if (-not $_.PSObject.Properties['Subject'])  { $_ | Add-Member -NotePropertyName Subject     -NotePropertyValue ''    -Force }
+    if (-not $_.PSObject.Properties['ShopId'])   { $_ | Add-Member -NotePropertyName ShopId      -NotePropertyValue 1     -Force }
+
+    if (-not $_.PSObject.Properties['Attachments'] -or $null -eq $_.Attachments) {
+        $_ | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
+    }
+    if (-not $_.PSObject.Properties['WorkLog'] -or $null -eq $_.WorkLog) {
+        $_ | Add-Member -NotePropertyName WorkLog -NotePropertyValue @() -Force
+    }
+
+    $ProjectsCollection.Add($_)
+}
+Apply-StatusOrder
+
+
+    } catch {
         Write-Log 'ERROR' 'Exception in Sync-TicketsFromDb' @{ Error = $_.Exception.Message }
         throw
     }
-    finally { if ($db) { $db.Dispose() } }
 }
+
 
 # ──────────────────────────────────────────────────
 # 6. Load XAML & Styles from embedded here-strings
@@ -1463,6 +1526,7 @@ $mainXaml.Window.RemoveAttribute('mc:Ignorable')
 $MainWindow = [System.Windows.Markup.XamlReader]::Load(
   (New-Object System.Xml.XmlNodeReader $mainXaml)
 )
+$MainWindow.Add_Closed({ if ($global:Db) { $global:Db.Dispose() } })
 
 if (-not $MainWindow) {
     Write-Error "Failed to create main window from XAML."
@@ -1511,8 +1575,8 @@ $DateRangeFilter          = $MainWindow.FindName("DateRangeFilter")
 $RefreshButton            = $MainWindow.FindName("RefreshButton")
 $ProjectList              = $MainWindow.FindName("ProjectList")
 $AddProjectButton         = $MainWindow.FindName("AddProjectButton")
-$ChangeShopMenuItem       = $MainWindow.FindName("ChangeShopMenuItem")
-$ManageShopsMenuItem      = $MainWindow.FindName("ManageShopsMenuItem")
+$ChangeShopMenuItem       = [System.Windows.LogicalTreeHelper]::FindLogicalNode($MainWindow,'ChangeShopMenuItem')
+$ManageShopsMenuItem      = [System.Windows.LogicalTreeHelper]::FindLogicalNode($MainWindow,'ManageShopsMenuItem')
   $DarkModeMenuItem         = $MainWindow.FindName("DarkModeMenuItem")
   $DarkModeMenuItem.IsChecked = $global:UseDarkTheme
   $StatusFilterMenuItem     = $MainWindow.FindName("StatusFilterMenuItem")
@@ -1549,8 +1613,8 @@ $view.Filter = {
     }
     $textMatch = $nameMatch -or $numberMatch -or $subjectMatch
     $statusOk  = $global:StatusFilter -eq 'All' -or $p.Status -eq $global:StatusFilter
-    $shopOk    = [string]::IsNullOrEmpty($global:CurrentShopId) -or ($p.PSObject.Properties['ShopId'] -and $p.ShopId -eq $global:CurrentShopId)
-    $cd = if ($p.CreationDate -is [pscustomobject]) { [datetime]$p.CreationDate.value } else { [datetime]$p.CreationDate }
+    $shopOk = -not $global:CurrentShopId -or ($p.PSObject.Properties['ShopId'] -and $p.ShopId -eq [int]$global:CurrentShopId)
+    $cd = Convert-LiteDbDate $p.CreationDate
 if ($start) { $textMatch -and $statusOk -and $shopOk -and ($cd -ge $start) }
 else        { $textMatch -and $statusOk -and $shopOk }
 
@@ -1586,31 +1650,39 @@ $ChangeShopMenuItem.Add_Click({
     try {
         $sel = Show-ShopSelectionDialog
         if ($sel) {
-            $global:CurrentShopId = $sel
+            $global:CurrentShopId = [int]$sel
+            Set-Setting 'CurrentShopId' $global:CurrentShopId
+            Sync-TicketsFromDb
             $view.Refresh()
         }
     } catch {
         Write-Log 'ERROR' 'Failed to select shop' @{ Error = $_.Exception.Message }
+        [System.Windows.MessageBox]::Show("Change Shop failed:`n$($_.Exception.Message)")
     }
 })
- $ManageShopsMenuItem.Add_Click({
+
+$ManageShopsMenuItem.Add_Click({
     try {
         Show-ShopManagementDialog
+        Sync-TicketsFromDb
         $view.Refresh()
     } catch {
         Write-Log 'ERROR' 'Failed to manage shops' @{ Error = $_.Exception.Message }
+        [System.Windows.MessageBox]::Show("Manage Shops failed:`n$($_.Exception.Message)")
     }
- })
+})
+
  # Change data file menu is obsolete in database-backed version
 
 $DarkModeMenuItem.Add_Checked({
-      Set-Theme $true
-      @{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
-  })
-  $DarkModeMenuItem.Add_Unchecked({
-      Set-Theme $false
-      @{ DatabasePath = $global:DatabasePath; UseDarkTheme = $global:UseDarkTheme } | ConvertTo-Json -Depth 2 | Set-Content $configFile
-  })
+    Set-Theme $true
+    Set-Setting 'UseDarkTheme' $true
+})
+$DarkModeMenuItem.Add_Unchecked({
+    Set-Theme $false
+    Set-Setting 'UseDarkTheme' $false
+})
+
 $ViewLogsMenuItem.Add_Click({
     Show-LogsWindow
 })
@@ -1626,27 +1698,80 @@ $timer.Start()
 
 # 9. Main Event Handlers
 $ProjectList.Add_MouseDoubleClick({
-    if (-not $global:DetailWindowOpen -and $ProjectList.SelectedItem) {
-       
-        $global:DetailWindowOpen = $true; $timer.Stop()
-         Show-ProjectDetailWindow $ProjectList.SelectedItem
-        Sync-TicketsFromDb; $view.Refresh()
-        $timer.Start(); $global:DetailWindowOpen = $false
+    if ($global:DetailWindowOpen -or -not $ProjectList.SelectedItem) { return }
+
+    $global:DetailWindowOpen = $true
+    $timer.Stop()
+
+   try {
+    $sel = $ProjectList.SelectedItem
+
+    # normalize possible null arrays before opening
+    if ($null -eq $sel.Attachments) { $sel.Attachments = @() }
+    if ($null -eq $sel.WorkLog)     { $sel.WorkLog     = @() }
+    if ($null -eq $sel.Subject)     { $sel.Subject     = '' }
+    if ($null -eq $sel.Priority)    { $sel.Priority    = 'Low' }
+    if ($null -eq $sel.ShopId)      { $sel.ShopId      = 1 }
+
+    if (Show-ProjectDetailWindow $sel) {
+        Save-TicketToDb $sel
+    }
+    Sync-TicketsFromDb
+    $view.Refresh()
+}
+
+
+    catch {
+        Write-Log 'ERROR' 'Open existing ticket failed' @{ Error = $_.Exception.Message; Stack = $_.ScriptStackTrace }
+        [System.Windows.MessageBox]::Show("Open Ticket failed:`n$($_.Exception.Message)", "Error")
+    }
+    finally {
+        $timer.Start()
+        $global:DetailWindowOpen = $false
     }
 })
 
+
+# New Ticket button
 $AddProjectButton.Add_Click({
-    if (-not $global:DetailWindowOpen) {
-        $global:DetailWindowOpen = $true; $timer.Stop()
+    if ($global:DetailWindowOpen) { return }
+
+    $global:DetailWindowOpen = $true
+    $timer.Stop()
+
+    try {
+        # inherit the currently selected shop (fallback to 1)
+        $shopId = if ($global:CurrentShopId) { [int]$global:CurrentShopId } else { 1 }
+
         $new = [PSCustomObject]@{
-            Name         = ""; Status = "Not Started"; Subject = ""; Priority = "Low";
-            WorkLog      = @(); Attachments = @(); CreationDate = Get-Date; ShopId = 1
+            Name         = ""
+            Status       = "Not Started"
+            Subject      = ""
+            Priority     = "Low"
+            WorkLog      = @()
+            Attachments  = @()
+            CreationDate = Get-Date
+            ShopId       = $shopId
         }
-        if (Show-ProjectDetailWindow $new) { Save-TicketToDb $new }
-        Sync-TicketsFromDb; $view.Refresh()
-        $timer.Start(); $global:DetailWindowOpen = $false
+
+        if (Show-ProjectDetailWindow $new) {
+            Save-TicketToDb $new
+        }
+
+        Sync-TicketsFromDb
+        $view.Refresh()
+    }
+    catch {
+        Write-Log 'ERROR' 'AddProjectButton failed' @{ Error = $_.Exception.Message; Stack = $_.ScriptStackTrace }
+        [System.Windows.MessageBox]::Show("New Ticket failed:`n$($_.Exception.Message)","Error")
+    }
+    finally {
+        $timer.Start()
+        $global:DetailWindowOpen = $false
     }
 })
+
+
 
 # 10. Modal Editor for Log Entries
 function Show-EntryEditWindow {
@@ -1726,6 +1851,8 @@ function Show-ProjectDetailWindow {
     if (-not $project.PSObject.Properties['ShopId']) {
         $project | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force
     }
+    if ($null -eq $project.Attachments) { $project.Attachments = @() }
+    if ($null -eq $project.WorkLog)     { $project.WorkLog     = @() }
     # ────────────────────────────────────────────
 
     # Load the raw XAML for the detail window
@@ -1788,18 +1915,20 @@ function Show-ProjectDetailWindow {
     $PriorityBox.SelectedItem = $project.Priority
 
     $AttList.Items.Clear()
-    foreach ($a in $project.Attachments) {
-        $AttList.Items.Add($a) | Out-Null
-    }
+foreach ($a in @($project.Attachments)) {
+    $AttList.Items.Add($a) | Out-Null
+}
+
     $LogListView.Items.Clear()
-    foreach ($e in $project.WorkLog) {
-        $LogListView.Items.Add([PSCustomObject]@{
-            Timestamp   = [DateTime]$e.Timestamp
-            Subject     = $e.Subject
-            Description = $e.Description
-            Duration    = $e.Duration
-        })
-    }
+foreach ($e in @($project.WorkLog)) {
+    $LogListView.Items.Add([PSCustomObject]@{
+        Timestamp   = Convert-LiteDbDate $e.Timestamp
+        Subject     = $e.Subject
+        Description = $e.Description
+        Duration    = $e.Duration
+    })
+}
+
 
     # Entry editing
     $LogListView.Add_MouseDoubleClick({
@@ -1912,7 +2041,7 @@ function Show-ProjectDetailWindow {
         $project.WorkLog = @()
         foreach ($item in $LogListView.Items) {
             $project.WorkLog += [PSCustomObject]@{
-                Timestamp   = [DateTime]$item.Timestamp
+                Timestamp   = Convert-LiteDbDate $item.Timestamp
                 Subject     = $item.Subject
                 Description = $item.Description
                 Duration    = $item.Duration
@@ -1920,7 +2049,7 @@ function Show-ProjectDetailWindow {
         }
         $project.Attachments = @()
         foreach ($i in $AttList.Items) { $project.Attachments += $i }
-        Save-TicketToDb $project
+       
         $win.DialogResult = $true
         $win.Close()
     })
