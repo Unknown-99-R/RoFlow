@@ -1269,7 +1269,7 @@ foreach ($p in $TicketsList) {
     if (-not $p.PSObject.Properties['AssignedTo']) {
         $p | Add-Member -NotePropertyName AssignedTo -NotePropertyValue '' -Force
     }
-
+}
 $TicketsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
 $TicketsList | ForEach-Object { $TicketsCollection.Add($_) }
 
@@ -1303,11 +1303,12 @@ function Save-TicketToDb {
         $json = $projCopy | ConvertTo-Json -Depth 5
         $doc  = [LiteDB.JsonSerializer]::Deserialize($json)
 
-        if ($doc -ne $null) {
+        if ($null -ne $doc) {
     [void]$col.Upsert($doc)
 } else {
     Write-Log 'ERROR' 'Ticket document was null during Upsert' @{ Id = $project.Id }
 }
+
 
         Write-Log 'INFO' 'Ticket saved' @{ Id = $project.Id; Number = $project.Number }
     } catch {
@@ -1675,27 +1676,30 @@ $AddTodoButton.Add_Click({
 })
 
 $TodoList.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::CheckedEvent, {
-    param($sender,$args)
-    if ($args.OriginalSource -is [System.Windows.Controls.CheckBox]) {
-        $todo = $args.OriginalSource.DataContext
+    param($s,$e)
+    if ($e.OriginalSource -is [System.Windows.Controls.CheckBox]) {
+        $todo = $e.OriginalSource.DataContext
         if ($todo) { Save-TodoToDb $todo }
     }
 })
+
 $TodoList.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::UncheckedEvent, {
-    param($sender,$args)
-    if ($args.OriginalSource -is [System.Windows.Controls.CheckBox]) {
-        $todo = $args.OriginalSource.DataContext
+    param($s,$e)
+    if ($e.OriginalSource -is [System.Windows.Controls.CheckBox]) {
+        $todo = $e.OriginalSource.DataContext
         if ($todo) { Save-TodoToDb $todo }
     }
 })
+
 $TodoList.Add_KeyDown({
-    param($sender,$args)
-    if ($args.Key -eq 'Delete' -and $TodoList.SelectedItem) {
+    param($s,$e)
+    if ($e.Key -eq 'Delete' -and $TodoList.SelectedItem) {
         $todo = $TodoList.SelectedItem
         Remove-TodoFromDb $todo
         $TodosCollection.Remove($todo)
     }
 })
+
 
 # 8. Auto-Reload Timer
 $timer = New-Object System.Windows.Threading.DispatcherTimer
