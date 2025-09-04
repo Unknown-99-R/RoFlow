@@ -162,36 +162,36 @@ $MainWindowXaml = @'
         <Button x:Name="AddProjectButton" Grid.Column="3" Content="New Ticket" Height="30" Padding="10,5"/>
       </Grid>
 
-      <!-- Ticket Summary cards (all 0 by default) -->
+      <!-- Ticket Summary cards bound to live counts -->
       <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
         <Border Style="{StaticResource SummaryCard}">
           <StackPanel>
             <TextBlock Text="Overdue" Style="{StaticResource SummaryLabel}"/>
-            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+            <TextBlock x:Name="OverdueCountText" Text="0" Style="{StaticResource SummaryNumber}"/>
           </StackPanel>
         </Border>
         <Border Style="{StaticResource SummaryCard}">
           <StackPanel>
             <TextBlock Text="Open" Style="{StaticResource SummaryLabel}"/>
-            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+            <TextBlock x:Name="OpenCountText" Text="0" Style="{StaticResource SummaryNumber}"/>
           </StackPanel>
         </Border>
         <Border Style="{StaticResource SummaryCard}">
           <StackPanel>
             <TextBlock Text="On Hold" Style="{StaticResource SummaryLabel}"/>
-            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+            <TextBlock x:Name="OnHoldCountText" Text="0" Style="{StaticResource SummaryNumber}"/>
           </StackPanel>
         </Border>
         <Border Style="{StaticResource SummaryCard}">
           <StackPanel>
             <TextBlock Text="Due Today" Style="{StaticResource SummaryLabel}"/>
-            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+            <TextBlock x:Name="DueTodayCountText" Text="0" Style="{StaticResource SummaryNumber}"/>
           </StackPanel>
         </Border>
         <Border Style="{StaticResource SummaryCard}" Margin="0,0,0,0">
           <StackPanel>
             <TextBlock Text="Unassigned" Style="{StaticResource SummaryLabel}"/>
-            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+            <TextBlock x:Name="UnassignedCountText" Text="0" Style="{StaticResource SummaryNumber}"/>
           </StackPanel>
         </Border>
       </StackPanel>
@@ -233,24 +233,25 @@ $MainWindowXaml = @'
           </ListBox>
         </Border>
 
-        <!-- Right To-Dos panel (static placeholders; optional to wire later) -->
+        <!-- Right To-Dos panel -->
         <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="4" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1" Padding="10" Background="{DynamicResource ContentBackgroundBrush}">
-          <StackPanel>
-            <TextBlock Text="To-Dos" FontWeight="Bold" Margin="0,0,0,8"/>
-            <StackPanel Orientation="Horizontal" Margin="0,2">
-              <CheckBox Margin="0,0,6,0"/>
-              <TextBlock Text="Nulla porta, justo ac ullamcorper aliquam..." TextWrapping="Wrap"/>
+          <DockPanel>
+            <TextBlock Text="To-Dos" FontWeight="Bold" Margin="0,0,0,8" DockPanel.Dock="Top"/>
+            <ListBox x:Name="TodoList" DockPanel.Dock="Top" BorderThickness="0" Background="Transparent">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox IsChecked="{Binding IsDone}" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+              <TextBox x:Name="NewTodoTextBox" Height="28" Margin="0,0,4,0" Padding="4"/>
+              <Button x:Name="AddTodoButton" Content="Add" Padding="10,5"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,2">
-              <CheckBox Margin="0,0,6,0"/>
-              <TextBlock Text="Nunc finibus nibh non sem dignissim..." TextWrapping="Wrap"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,2">
-              <CheckBox Margin="0,0,6,0"/>
-              <TextBlock Text="Pellentesque dictum ac mi..." TextWrapping="Wrap"/>
-            </StackPanel>
-            <TextBox Height="28" Margin="0,8,0,0" Padding="4" Text="Add To do" Foreground="{DynamicResource PlaceholderBrush}"/>
-          </StackPanel>
+          </DockPanel>
         </Border>
       </Grid>
     </Grid>
@@ -259,9 +260,9 @@ $MainWindowXaml = @'
 '@
 
 # ───────────────────────────────────────────────────────────────────
-# EMBEDDED ProjectDetailWindow XAML
+# EMBEDDED TicketDetailWindow XAML
 # ───────────────────────────────────────────────────────────────────
-$ProjectDetailWindowXaml = @'
+$TicketDetailWindowXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ticket Details" Height="700" Width="900"
@@ -947,6 +948,10 @@ function Ensure-Database {
         $shops.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
     }
 
+    if (-not $db.CollectionExists('todos')) {
+        $null = $db.GetCollection('todos')
+    }
+
     $settings = $db.GetCollection('settings')
 
     if (-not $settings.FindById('UseDarkTheme')) {
@@ -954,6 +959,9 @@ function Ensure-Database {
     }
     if (-not $settings.FindById('CurrentShopId')) {
         $settings.Upsert([LiteDB.BsonDocument]@{ _id='CurrentShopId'; Key='CurrentShopId'; Value=1 }) | Out-Null
+    }
+    if (-not $settings.FindById('DBSchemaVersion')) {
+        $settings.Upsert([LiteDB.BsonDocument]@{ _id='DBSchemaVersion'; Key='DBSchemaVersion'; Value=2 }) | Out-Null
     }
 }
 
@@ -977,8 +985,26 @@ function Set-Setting {
     $col.Upsert($doc) | Out-Null
 }
 
+function Run-DatabaseMigration {
+    $version = [int](Get-Setting 'DBSchemaVersion' 1)
+    if ($version -lt 2) {
+        $col = $global:Db.GetCollection('tickets')
+        foreach ($doc in $col.FindAll()) {
+            $updated = $false
+            if (-not $doc.ContainsKey('DueDate'))     { $doc['DueDate']     = [LiteDB.BsonValue]::new($null); $updated = $true }
+            if (-not $doc.ContainsKey('AssignedTo'))  { $doc['AssignedTo']  = [LiteDB.BsonValue]::new('');    $updated = $true }
+            if (-not $doc.ContainsKey('ShopId'))      { $doc['ShopId']      = [LiteDB.BsonValue]::new(1);     $updated = $true }
+            if (-not $doc.ContainsKey('Priority'))    { $doc['Priority']    = [LiteDB.BsonValue]::new('Low'); $updated = $true }
+            if (-not $doc.ContainsKey('Subject'))     { $doc['Subject']     = [LiteDB.BsonValue]::new('');    $updated = $true }
+            if ($updated) { $col.Update($doc) | Out-Null }
+        }
+        Set-Setting 'DBSchemaVersion' 2
+    }
+}
+
 
 Ensure-Database
+Run-DatabaseMigration
 
 # Load settings from DB
 $global:UseDarkTheme  = [bool](Get-Setting 'UseDarkTheme' $false)
@@ -1038,10 +1064,25 @@ function Convert-LiteDbDate {
 }
 
 function Apply-StatusOrder {
-    foreach ($p in $ProjectsCollection) {
+    foreach ($p in $TicketsCollection) {
         $order = if ($statusOrder.ContainsKey($p.Status)) { $statusOrder[$p.Status] } else { 3 }
         $p | Add-Member -NotePropertyName StatusOrder -NotePropertyValue $order -Force
     }
+}
+
+function Update-SummaryCounts {
+    $now = Get-Date
+    $overdue   = ($TicketsCollection | Where-Object { $_.Status -ne 'Complete' -and $_.DueDate -and $_.DueDate -lt $now }).Count
+    $open      = ($TicketsCollection | Where-Object { $_.Status -ne 'Complete' }).Count
+    $onHold    = ($TicketsCollection | Where-Object { $_.Status -eq 'On Hold' }).Count
+    $dueToday  = ($TicketsCollection | Where-Object { $_.DueDate -and $_.DueDate.Date -eq $now.Date }).Count
+    $unassigned= ($TicketsCollection | Where-Object { [string]::IsNullOrWhiteSpace($_.AssignedTo) }).Count
+
+    if ($OverdueCountText)    { $OverdueCountText.Text    = $overdue }
+    if ($OpenCountText)       { $OpenCountText.Text       = $open }
+    if ($OnHoldCountText)     { $OnHoldCountText.Text     = $onHold }
+    if ($DueTodayCountText)   { $DueTodayCountText.Text   = $dueToday }
+    if ($UnassignedCountText) { $UnassignedCountText.Text = $unassigned }
 }
 
 
@@ -1192,8 +1233,8 @@ function Show-ShopManagementDialog {
     $win.ShowDialog() | Out-Null
 }
 
-# 4. Load Existing Projects
-$ProjectsList = @()
+# 4. Load Existing Tickets
+$TicketsList = @()
 if (Test-Path $DatabasePath) {
     try {
         $db = $global:Db
@@ -1202,13 +1243,13 @@ if (Test-Path $DatabasePath) {
             $shopsCol.Insert([LiteDB.BsonDocument]@{ _id = 1; Name = 'Default' }) | Out-Null
         }
         $col = $db.GetCollection('tickets')
-        $ProjectsList = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
+        $TicketsList = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
     } catch {
         Write-Log 'ERROR' 'Failed to load projects from database' @{ Error = $_.Exception.Message }
     }
 }
 
-foreach ($p in $ProjectsList) {
+foreach ($p in $TicketsList) {
     if ($p.PSObject.Properties['CreationDate']) {
     $p.CreationDate = Convert-LiteDbDate $p.CreationDate
 }
@@ -1222,10 +1263,17 @@ foreach ($p in $ProjectsList) {
     if (-not $p.PSObject.Properties['ShopId']) {
         $p | Add-Member -NotePropertyName ShopId -NotePropertyValue 1 -Force
     }
-}
+    if (-not $p.PSObject.Properties['DueDate']) {
+        $p | Add-Member -NotePropertyName DueDate -NotePropertyValue $null -Force
+    }
+    if (-not $p.PSObject.Properties['AssignedTo']) {
+        $p | Add-Member -NotePropertyName AssignedTo -NotePropertyValue '' -Force
+    }
 
-$ProjectsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
-$ProjectsList | ForEach-Object { $ProjectsCollection.Add($_) }
+$TicketsCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
+$TicketsList | ForEach-Object { $TicketsCollection.Add($_) }
+
+$TodosCollection = [System.Collections.ObjectModel.ObservableCollection[Object]]::new()
 
 # 5. Sync Functions
 function Save-TicketToDb {
@@ -1233,14 +1281,16 @@ function Save-TicketToDb {
     Write-Log 'DEBUG' 'Entered Save-TicketToDb' @{ Id = $project.Id }
 
     if ([string]::IsNullOrWhiteSpace($project.Name)) {
-        Write-Log 'INFO' 'Project removed due to missing title' @{ Id = $project.Id }
+        Write-Log 'INFO' 'Ticket removed due to missing title' @{ Id = $project.Id }
         if ($project.PSObject.Properties['Id']) { Remove-TicketFromDb $project }
         return
     }
 
-    if (-not $project.PSObject.Properties['Subject'])  { $project | Add-Member -NotePropertyName Subject  -NotePropertyValue ''    -Force }
-    if (-not $project.PSObject.Properties['Priority']) { $project | Add-Member -NotePropertyName Priority -NotePropertyValue 'Low' -Force }
-    if (-not $project.PSObject.Properties['ShopId'])   { $project | Add-Member -NotePropertyName ShopId   -NotePropertyValue 1     -Force }
+    if (-not $project.PSObject.Properties['Subject'])    { $project | Add-Member -NotePropertyName Subject    -NotePropertyValue ''    -Force }
+    if (-not $project.PSObject.Properties['Priority'])   { $project | Add-Member -NotePropertyName Priority   -NotePropertyValue 'Low' -Force }
+    if (-not $project.PSObject.Properties['ShopId'])     { $project | Add-Member -NotePropertyName ShopId     -NotePropertyValue ([int]$global:CurrentShopId)     -Force }
+    if (-not $project.PSObject.Properties['DueDate'])    { $project | Add-Member -NotePropertyName DueDate    -NotePropertyValue $null -Force }
+    if (-not $project.PSObject.Properties['AssignedTo']) { $project | Add-Member -NotePropertyName AssignedTo -NotePropertyValue '' -Force }
 
     try {
         $col = $global:Db.GetCollection('tickets')
@@ -1259,7 +1309,7 @@ function Save-TicketToDb {
     Write-Log 'ERROR' 'Ticket document was null during Upsert' @{ Id = $project.Id }
 }
 
-        Write-Log 'INFO' 'Project saved' @{ Id = $project.Id; Number = $project.Number }
+        Write-Log 'INFO' 'Ticket saved' @{ Id = $project.Id; Number = $project.Number }
     } catch {
         Write-Log 'ERROR' 'Exception in Save-TicketToDb' @{ Error = $_.Exception.Message }
         throw
@@ -1338,7 +1388,7 @@ function Remove-TicketFromDb {
     try {
         $col = $global:Db.GetCollection('tickets')
         $col.Delete($project.Id) | Out-Null
-        Write-Log 'INFO' 'Project removed' @{ Id = $project.Id }
+        Write-Log 'INFO' 'Ticket removed' @{ Id = $project.Id }
     } catch {
         Write-Log 'ERROR' 'Exception in Remove-TicketFromDb' @{ Error = $_.Exception.Message }
         throw
@@ -1349,9 +1399,10 @@ function Remove-TicketFromDb {
 function Sync-TicketsFromDb {
     try {
         $col = $global:Db.GetCollection('tickets')
-        $plist = $col.FindAll() | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
+        $query = [LiteDB.Query]::EQ('ShopId',[LiteDB.BsonValue]::new([int]$global:CurrentShopId))
+        $plist = $col.Find($query) | ForEach-Object { [LiteDB.JsonSerializer]::Serialize($_) | ConvertFrom-Json }
 
-      $ProjectsCollection.Clear()
+      $TicketsCollection.Clear()
 $plist | ForEach-Object {
     if ($_.PSObject.Properties['CreationDate']) {
         $_.CreationDate = Convert-LiteDbDate $_.CreationDate
@@ -1360,6 +1411,8 @@ $plist | ForEach-Object {
     if (-not $_.PSObject.Properties['Priority']) { $_ | Add-Member -NotePropertyName Priority    -NotePropertyValue 'Low' -Force }
     if (-not $_.PSObject.Properties['Subject'])  { $_ | Add-Member -NotePropertyName Subject     -NotePropertyValue ''    -Force }
     if (-not $_.PSObject.Properties['ShopId'])   { $_ | Add-Member -NotePropertyName ShopId      -NotePropertyValue 1     -Force }
+    if (-not $_.PSObject.Properties['DueDate'])  { $_ | Add-Member -NotePropertyName DueDate     -NotePropertyValue $null -Force }
+    if (-not $_.PSObject.Properties['AssignedTo']) { $_ | Add-Member -NotePropertyName AssignedTo -NotePropertyValue ''    -Force }
 
     if (-not $_.PSObject.Properties['Attachments'] -or $null -eq $_.Attachments) {
         $_ | Add-Member -NotePropertyName Attachments -NotePropertyValue @() -Force
@@ -1368,16 +1421,47 @@ $plist | ForEach-Object {
         $_ | Add-Member -NotePropertyName WorkLog -NotePropertyValue @() -Force
     }
 
-    $ProjectsCollection.Add($_)
+    $TicketsCollection.Add($_)
 }
 Apply-StatusOrder
-
+Update-SummaryCounts
 
     } catch {
         Write-Log 'ERROR' 'Exception in Sync-TicketsFromDb' @{ Error = $_.Exception.Message }
         throw
     }
 }
+
+function Save-TodoToDb {
+    param($todo)
+    $col = $global:Db.GetCollection('todos')
+    if (-not $todo.PSObject.Properties['_id']) { $todo | Add-Member -NotePropertyName _id -NotePropertyValue ([guid]::NewGuid().ToString()) -Force }
+    $doc = [LiteDB.JsonSerializer]::Deserialize(($todo | ConvertTo-Json -Depth 5))
+    $col.Upsert($doc) | Out-Null
+}
+
+function Remove-TodoFromDb {
+    param($todo)
+    $global:Db.GetCollection('todos').Delete($todo._id) | Out-Null
+}
+
+function Sync-TodosFromDb {
+    try {
+        $col = $global:Db.GetCollection('todos')
+        $query = [LiteDB.Query]::EQ('ShopId',[LiteDB.BsonValue]::new([int]$global:CurrentShopId))
+        $docs = $col.Find($query)
+        $TodosCollection.Clear()
+        foreach ($d in $docs) {
+            $obj = [LiteDB.JsonSerializer]::Serialize($d) | ConvertFrom-Json
+            $TodosCollection.Add($obj)
+        }
+    } catch {
+        Write-Log 'ERROR' 'Exception in Sync-TodosFromDb' @{ Error = $_.Exception.Message }
+        throw
+    }
+}
+
+Sync-TodosFromDb
 
 
 # ──────────────────────────────────────────────────
@@ -1457,14 +1541,25 @@ $FilterNotStartedMenuItem = $MainWindow.FindName("FilterNotStartedMenuItem")
 $FilterOngoingMenuItem    = $MainWindow.FindName("FilterOngoingMenuItem")
 $FilterCompleteMenuItem   = $MainWindow.FindName("FilterCompleteMenuItem")
 $ViewLogsMenuItem         = $MainWindow.FindName("ViewLogsMenuItem")
+$TodoList                 = $MainWindow.FindName("TodoList")
+$NewTodoTextBox           = $MainWindow.FindName("NewTodoTextBox")
+$AddTodoButton            = $MainWindow.FindName("AddTodoButton")
+$OverdueCountText         = $MainWindow.FindName("OverdueCountText")
+$OpenCountText            = $MainWindow.FindName("OpenCountText")
+$OnHoldCountText          = $MainWindow.FindName("OnHoldCountText")
+$DueTodayCountText        = $MainWindow.FindName("DueTodayCountText")
+$UnassignedCountText      = $MainWindow.FindName("UnassignedCountText")
+$TodoList.ItemsSource     = $TodosCollection
 
 $global:StatusFilter = 'All'
 
-$view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($ProjectsCollection)
+$view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($TicketsCollection)
 $view.GroupDescriptions.Add((New-Object System.Windows.Data.PropertyGroupDescription("Status")))
-$ProjectList.ItemsSource = $ProjectsCollection
+$ProjectList.ItemsSource = $TicketsCollection
 
 Apply-StatusOrder
+Update-SummaryCounts
+$TicketsCollection.add_CollectionChanged({ Update-SummaryCounts })
 
 # Ensure the view respects the custom status order
 $view.SortDescriptions.Clear()
@@ -1499,7 +1594,9 @@ $DateRangeFilter.Add_SelectionChanged({
     $view.Refresh()
 })
 $RefreshButton.Add_Click({
-    Sync-TicketsFromDb; $view.Refresh()
+    Sync-TicketsFromDb
+    Sync-TodosFromDb
+    $view.Refresh()
 })
 
 $FilterAllMenuItem.Add_Click({
@@ -1525,6 +1622,7 @@ $ChangeShopMenuItem.Add_Click({
             $global:CurrentShopId = [int]$sel
             Set-Setting 'CurrentShopId' $global:CurrentShopId
             Sync-TicketsFromDb
+            Sync-TodosFromDb
             $view.Refresh()
         }
     } catch {
@@ -1537,6 +1635,7 @@ $ManageShopsMenuItem.Add_Click({
     try {
         Show-ShopManagementDialog
         Sync-TicketsFromDb
+        Sync-TodosFromDb
         $view.Refresh()
     } catch {
         Write-Log 'ERROR' 'Failed to manage shops' @{ Error = $_.Exception.Message }
@@ -1558,11 +1657,52 @@ $DarkModeMenuItem.Add_Unchecked({
 $ViewLogsMenuItem.Add_Click({
     Show-LogsWindow
 })
+
+$AddTodoButton.Add_Click({
+    $text = $NewTodoTextBox.Text.Trim()
+    if (-not [string]::IsNullOrWhiteSpace($text)) {
+        $todo = [pscustomobject]@{
+            Text      = $text
+            IsDone    = $false
+            CreatedAt = Get-Date
+            ShopId    = [int]$global:CurrentShopId
+            Order     = $TodosCollection.Count
+        }
+        Save-TodoToDb $todo
+        $TodosCollection.Add($todo)
+        $NewTodoTextBox.Text = ''
+    }
+})
+
+$TodoList.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::CheckedEvent, {
+    param($sender,$args)
+    if ($args.OriginalSource -is [System.Windows.Controls.CheckBox]) {
+        $todo = $args.OriginalSource.DataContext
+        if ($todo) { Save-TodoToDb $todo }
+    }
+})
+$TodoList.AddHandler([System.Windows.Controls.Primitives.ToggleButton]::UncheckedEvent, {
+    param($sender,$args)
+    if ($args.OriginalSource -is [System.Windows.Controls.CheckBox]) {
+        $todo = $args.OriginalSource.DataContext
+        if ($todo) { Save-TodoToDb $todo }
+    }
+})
+$TodoList.Add_KeyDown({
+    param($sender,$args)
+    if ($args.Key -eq 'Delete' -and $TodoList.SelectedItem) {
+        $todo = $TodoList.SelectedItem
+        Remove-TodoFromDb $todo
+        $TodosCollection.Remove($todo)
+    }
+})
+
 # 8. Auto-Reload Timer
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds(3)
 $timer.Add_Tick({
     Sync-TicketsFromDb
+    Sync-TodosFromDb
     $view.Refresh()
 })
 $timer.Start()
@@ -1585,7 +1725,7 @@ $ProjectList.Add_MouseDoubleClick({
     if ($null -eq $sel.Priority)    { $sel.Priority    = 'Low' }
     if ($null -eq $sel.ShopId)      { $sel.ShopId      = 1 }
 
-    if (Show-ProjectDetailWindow $sel) {
+    if (Show-TicketDetailWindow $sel) {
         Save-TicketToDb $sel
     }
     Sync-TicketsFromDb
@@ -1626,7 +1766,7 @@ $AddProjectButton.Add_Click({
             ShopId       = $shopId
         }
 
-        if (Show-ProjectDetailWindow $new) {
+        if (Show-TicketDetailWindow $new) {
             Save-TicketToDb $new
         }
 
@@ -1701,7 +1841,7 @@ function Show-EntryEditWindow {
 }
 
 # 11. Project Detail Window Function
-function Show-ProjectDetailWindow {
+function Show-TicketDetailWindow {
     param([Object]$project)
 
     # ─── Ensure required properties exist ───
@@ -1728,7 +1868,7 @@ function Show-ProjectDetailWindow {
     # ────────────────────────────────────────────
 
     # Load the raw XAML for the detail window
-    $dx = [xml]$ProjectDetailWindowXaml
+    $dx = [xml]$TicketDetailWindowXaml
     $dx.Window.RemoveAttribute('x:Class')
     $dx.Window.RemoveAttribute('mc:Ignorable')
 
@@ -1893,8 +2033,8 @@ foreach ($e in @($project.WorkLog)) {
                 [System.Windows.MessageBoxImage]::Warning
             ) -eq 'Yes'
         ) {
-            Write-Log 'INFO' 'Project deletion confirmed' @{ Id = $project.Id }
-            $ProjectsCollection.Remove($project)
+            Write-Log 'INFO' 'Ticket deletion confirmed' @{ Id = $project.Id }
+            $TicketsCollection.Remove($project)
             Remove-TicketFromDb $project
             $win.DialogResult = $true
             $win.Close()
