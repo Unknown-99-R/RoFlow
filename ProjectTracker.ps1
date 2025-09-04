@@ -14,378 +14,250 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
 $MainWindowXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="RoFlow" Height="700" Width="900"
+        Title="RoFlow" Height="700" Width="1000"
         Background="{DynamicResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13">
-    <Window.Resources>
-        <!-- DataTemplate for project tile -->
-        <DataTemplate x:Key="ProjectTileTemplate">
-            <Border x:Name="TileBorder"
-                    Background="{DynamicResource SurfaceOfTile}"
-                    CornerRadius="8"
-                    Padding="6"
-                    Margin="6"
-                    BorderThickness="2"
-                    Effect="{DynamicResource TileShadow}">
-                <StackPanel HorizontalAlignment="Center"
-                            VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Number}"
-                               FontSize="10"
-                               Foreground="{DynamicResource GrayNumberBrush}"
-                               HorizontalAlignment="Center"
-                               Margin="0,0,0,1"/>
-                    <TextBlock Text="{Binding Name}"
-                               TextWrapping="NoWrap"
-                               TextTrimming="CharacterEllipsis"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource PrimaryForegroundBrush}"
-                               Margin="0,0,0,1"/>
-                    <TextBlock Text="{Binding Priority}"
-                               FontSize="10"
-                               HorizontalAlignment="Center"
-                               Margin="0,0,0,3">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{DynamicResource GrayNumberBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Priority}" Value="Low">
-                                        <Setter Property="Foreground" Value="Green"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Priority}" Value="Medium">
-                                        <Setter Property="Foreground" Value="Goldenrod"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Priority}" Value="High">
-                                        <Setter Property="Foreground" Value="Red"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock HorizontalAlignment="Center"
-           FontSize="10"
-           Foreground="{DynamicResource GrayNumberBrush}"
-           Margin="0,1,0,0">
-  <TextBlock.Text>
-    <PriorityBinding StringFormat="{}{0:MMM dd, yyyy}">
-      <Binding Path="CreationDate.value"/>
-      <Binding Path="CreationDate"/>
-    </PriorityBinding>
-  </TextBlock.Text>
-</TextBlock>
+  <Window.Resources>
+    <!-- DropShadow for cards -->
+    <DropShadowEffect x:Key="CardShadow" BlurRadius="8" ShadowDepth="0" Opacity="0.18"/>
+    <!-- Flat menu style (kept for your Settings/Status menus) -->
+    <Style x:Key="FlatMenuStyle" TargetType="Menu">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Menu">
+            <StackPanel Orientation="Horizontal" IsItemsHost="True"/>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- Summary card -->
+    <Style x:Key="SummaryCard" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="10"/>
+      <Setter Property="Margin" Value="0,0,10,0"/>
+      <Setter Property="Effect" Value="{StaticResource CardShadow}"/>
+    </Style>
+    <Style x:Key="SummaryLabel" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource GrayNumberBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
+    <Style x:Key="SummaryNumber" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource PrimaryForegroundBrush}"/>
+      <Setter Property="FontSize" Value="24"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+  </Window.Resources>
 
-                </StackPanel>
-            </Border>
-            <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Complete">
-                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="{DynamicResource CompleteTile}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Ongoing">
-                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="{DynamicResource OngoingTile}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Not Started">
-                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="{DynamicResource NotStartedTile}"/>
-                </DataTrigger>
-            </DataTemplate.Triggers>
-        </DataTemplate>
+  <!-- Main layout: Left nav + right content -->
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="170"/>   <!-- Sidebar -->
+      <ColumnDefinition Width="*"/>     <!-- Main -->
+    </Grid.ColumnDefinitions>
 
-        <!-- DropShadow for tiles -->
-        <DropShadowEffect x:Key="TileShadow"
-                          BlurRadius="8"
-                          ShadowDepth="0"
-                          Opacity="0.2"/>
+    <!-- LEFT SIDEBAR (blue) -->
+    <Grid Grid.Column="0" Background="#1E63FF">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="60"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="60"/>
+      </Grid.RowDefinitions>
 
-        <!-- Flat menu style: no background or border -->
-        <Style x:Key="FlatMenuStyle" TargetType="Menu">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Template">
+      <!-- Logo area -->
+      <Border Grid.Row="0" Background="#1A58E6">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0">
+          <Ellipse Width="28" Height="28" Fill="White" Opacity="0.92"/>
+          <TextBlock Text="RoFlow" Foreground="White" FontWeight="Bold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Nav items (NO Social / Solutions) -->
+      <StackPanel Grid.Row="1" Margin="10,12" >
+        <Button Content="Dashboard" Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+        <Button Content="Tickets"   Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+        <Button Content="Forums"    Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+        <Button Content="Customers" Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+        <Button Content="Reports"   Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+        <Button Content="Admin"     Margin="0,2" Padding="10,8" Foreground="White" Background="Transparent" BorderBrush="#80FFFFFF"/>
+      </StackPanel>
+
+      <!-- Footer / version -->
+      <TextBlock Grid.Row="2" Text="© 2025" Foreground="#CCFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Grid>
+
+    <!-- RIGHT CONTENT -->
+    <Grid Grid.Column="1" Margin="10">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>   <!-- Menubar -->
+        <RowDefinition Height="Auto"/>   <!-- Top bar -->
+        <RowDefinition Height="Auto"/>   <!-- Summary -->
+        <RowDefinition Height="*"/>      <!-- Content (Project list + right To-Dos like the mock) -->
+      </Grid.RowDefinitions>
+
+      <!-- Top Menu (Settings / Status filter) -->
+      <Menu Grid.Row="0" Style="{StaticResource FlatMenuStyle}" Foreground="{DynamicResource GrayNumberBrush}">
+        <MenuItem Header="Settings" Style="{DynamicResource TopMenuItemStyle}" ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
+          <MenuItem x:Name="ChangeShopMenuItem" Header="Change Shop" Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="ManageShopsMenuItem" Header="Manage Shops" Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="DarkModeMenuItem" Header="Dark Mode" IsCheckable="True" Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="ViewLogsMenuItem" Header="View Logs" Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+        </MenuItem>
+        <MenuItem x:Name="StatusFilterMenuItem" Header="Status: All" Style="{DynamicResource TopMenuItemStyle}" ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
+          <MenuItem x:Name="FilterAllMenuItem"        Header="All"          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="FilterNotStartedMenuItem" Header="Not Started"  Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="FilterOngoingMenuItem"    Header="Ongoing"      Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+          <MenuItem x:Name="FilterCompleteMenuItem"   Header="Complete"     Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+        </MenuItem>
+      </Menu>
+
+      <!-- Top bar with Search / DateRange / Refresh / New Ticket -->
+      <Grid Grid.Row="1" Margin="0,6,0,10">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBox x:Name="SearchBox" Grid.Column="0" Height="30" Margin="0,0,8,0" VerticalAlignment="Center" Padding="5"
+                 Background="{DynamicResource ContentBackgroundBrush}">
+          <TextBox.Style>
+            <Style TargetType="TextBox">
+              <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="Menu">
-                        <StackPanel Orientation="Horizontal" IsItemsHost="True"/>
-                    </ControlTemplate>
+                  <ControlTemplate TargetType="TextBox">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2">
+                      <Grid>
+                        <ScrollViewer x:Name="PART_ContentHost" Background="Transparent"/>
+                        <TextBlock x:Name="Watermark" Text="Search" Foreground="{DynamicResource PlaceholderBrush}" Margin="7,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed"/>
+                      </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="Text" Value="">
+                        <Setter TargetName="Watermark" Property="Visibility" Value="Visible"/>
+                      </Trigger>
+                      <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter TargetName="Watermark" Property="Visibility" Value="Collapsed"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
                 </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
+              </Setter>
+            </Style>
+          </TextBox.Style>
+        </TextBox>
 
-    <Grid Margin="10">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- Menu -->
-            <RowDefinition Height="Auto"/>   <!-- Top bar -->
-            <RowDefinition Height="*"/>      <!-- Project list -->
-        </Grid.RowDefinitions>
+        <ComboBox x:Name="DateRangeFilter" Grid.Column="1" Height="30" Margin="0,0,8,0" VerticalAlignment="Center" SelectedIndex="0">
+          <ComboBoxItem>All</ComboBoxItem>
+          <ComboBoxItem>Last 30 Days</ComboBoxItem>
+          <ComboBoxItem>Last 6 Months</ComboBoxItem>
+          <ComboBoxItem>Last Year</ComboBoxItem>
+        </ComboBox>
 
-        <!-- Menu -->
-        <Menu Grid.Row="0"
-              Style="{StaticResource FlatMenuStyle}"
-              Foreground="{DynamicResource GrayNumberBrush}">
-            <MenuItem Header="Settings"
-                      Style="{DynamicResource TopMenuItemStyle}"
-                      ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
-                <MenuItem x:Name="ChangeShopMenuItem"
-          Header="Change Shop"
-          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-                <MenuItem x:Name="ManageShopsMenuItem"
-          Header="Manage Shops"
-          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-<MenuItem x:Name="DarkModeMenuItem"
-          Header="Dark Mode"
-          IsCheckable="True"
-          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-<MenuItem x:Name="ViewLogsMenuItem"
-          Header="View Logs"
-          Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
+        <Button x:Name="RefreshButton" Grid.Column="2" Content="Refresh" Height="30" Margin="0,0,8,0" Padding="10,5"/>
+        <Button x:Name="AddProjectButton" Grid.Column="3" Content="New Ticket" Height="30" Padding="10,5"/>
+      </Grid>
 
-            </MenuItem>
-            <MenuItem x:Name="StatusFilterMenuItem" Header="Status: All"
-          Style="{DynamicResource TopMenuItemStyle}"
-          ItemContainerStyle="{DynamicResource SubMenuItemStyle}">
-  <MenuItem x:Name="FilterAllMenuItem"        Header="All"
-            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-  <MenuItem x:Name="FilterNotStartedMenuItem" Header="Not Started"
-            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-  <MenuItem x:Name="FilterOngoingMenuItem"    Header="Ongoing"
-            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-  <MenuItem x:Name="FilterCompleteMenuItem"   Header="Complete"
-            Foreground="{DynamicResource SpecialMenuItemForegroundBrush}"/>
-</MenuItem>
+      <!-- Ticket Summary cards (all 0 by default) -->
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+        <Border Style="{StaticResource SummaryCard}">
+          <StackPanel>
+            <TextBlock Text="Overdue" Style="{StaticResource SummaryLabel}"/>
+            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource SummaryCard}">
+          <StackPanel>
+            <TextBlock Text="Open" Style="{StaticResource SummaryLabel}"/>
+            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource SummaryCard}">
+          <StackPanel>
+            <TextBlock Text="On Hold" Style="{StaticResource SummaryLabel}"/>
+            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource SummaryCard}">
+          <StackPanel>
+            <TextBlock Text="Due Today" Style="{StaticResource SummaryLabel}"/>
+            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource SummaryCard}" Margin="0,0,0,0">
+          <StackPanel>
+            <TextBlock Text="Unassigned" Style="{StaticResource SummaryLabel}"/>
+            <TextBlock Text="0" Style="{StaticResource SummaryNumber}"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
 
-        </Menu>
+      <!-- Main content: Project list + To-Dos side panel -->
+      <Grid Grid.Row="3">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="320"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Top bar -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Search with watermark -->
-            <TextBox x:Name="SearchBox"
-                     Grid.Column="0"
-                     Height="30"
-                     Margin="0,0,8,0"
-                     VerticalAlignment="Center"
-                     Padding="5"
-                     Background="{DynamicResource ContentBackgroundBrush}">
-                <TextBox.Style>
-                    <Style TargetType="TextBox">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="TextBox">
-                                    <Border Background="{TemplateBinding Background}"
-                                            BorderBrush="{TemplateBinding BorderBrush}"
-                                            BorderThickness="{TemplateBinding BorderThickness}"
-                                            CornerRadius="2">
-                                        <Grid>
-                                            <ScrollViewer x:Name="PART_ContentHost"
-                                                          Background="Transparent"/>
-                                            <TextBlock x:Name="Watermark"
-                                                       Text="Search"
-                                                       Foreground="{DynamicResource PlaceholderBrush}"
-                                                       Margin="7,0,0,0"
-                                                       VerticalAlignment="Center"
-                                                       IsHitTestVisible="False"
-                                                       Visibility="Collapsed"/>
-                                        </Grid>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="Text" Value="">
-                                            <Setter TargetName="Watermark"
-                                                    Property="Visibility"
-                                                    Value="Visible"/>
-                                        </Trigger>
-                                        <Trigger Property="IsKeyboardFocused" Value="True">
-                                            <Setter TargetName="Watermark"
-                                                    Property="Visibility"
-                                                    Value="Collapsed"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </TextBox.Style>
-            </TextBox>
-
-            <!-- Date range filter -->
-            <ComboBox x:Name="DateRangeFilter"
-                      Grid.Column="1"
-                      Height="30"
-                      Margin="0,0,8,0"
-                      VerticalAlignment="Center"
-                      SelectedIndex="0">
-                <ComboBoxItem>All</ComboBoxItem>
-                <ComboBoxItem>Last 30 Days</ComboBoxItem>
-                <ComboBoxItem>Last 6 Months</ComboBoxItem>
-                <ComboBoxItem>Last Year</ComboBoxItem>
-            </ComboBox>
-
-            <!-- Refresh -->
-            <Button x:Name="RefreshButton"
-                    Grid.Column="2"
-                    Content="Refresh"
-                    Height="30"
-                    Margin="0,0,8,0"
-                    Padding="10,5"/>
-
-            <!-- New ticket -->
-            <Button x:Name="AddProjectButton"
-                    Grid.Column="3"
-                    Content="New Ticket"
-                    Height="30"
-                    Padding="10,5"/>
-        </Grid>
-
-        <!-- Project tiles -->
-        <ListBox x:Name="ProjectList"
-                 Grid.Row="2"
-                 ItemTemplate="{StaticResource ProjectTileTemplate}"
-                 HorizontalContentAlignment="Stretch"
-                 VerticalContentAlignment="Top"
-                 BorderThickness="0"
-                 Background="Transparent"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <!-- Your tile/list binding (kept same names so code works) -->
+        <Border Grid.Column="0" CornerRadius="4" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1" Padding="2" Background="{DynamicResource ContentBackgroundBrush}">
+          <ListBox x:Name="ProjectList"
+                   ItemTemplate="{StaticResource ProjectTileTemplate}"
+                   HorizontalContentAlignment="Stretch"
+                   VerticalContentAlignment="Top"
+                   BorderThickness="0"
+                   Background="Transparent"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <WrapPanel/>
-                </ItemsPanelTemplate>
+              <ItemsPanelTemplate>
+                <WrapPanel/>
+              </ItemsPanelTemplate>
             </ListBox.ItemsPanel>
             <ListBox.Resources>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"     Color="#FF0078D7"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"     Color="#FF0078D7"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White"/>
             </ListBox.Resources>
-             <ListBox.GroupStyle>
-  <GroupStyle>
-    <GroupStyle.HeaderTemplate>
-      <DataTemplate>
-        <TextBlock Text="{Binding Name}"
-                   FontSize="12"
-                   FontWeight="Bold"
-                   Foreground="{DynamicResource PrimaryForegroundBrush}"
-                   Margin="0,6,0,3"/>
-      </DataTemplate>
-    </GroupStyle.HeaderTemplate>
-    </GroupStyle>
-  </ListBox.GroupStyle>
-</ListBox>
-        <!-- Information icon in the lower-right corner -->
-        <Canvas Grid.Row="2"
-                Width="20" Height="20"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Bottom"
-                Margin="0,0,8,8"
-                Panel.ZIndex="1">
-             <Ellipse Width="20" Height="20"
-                     Stroke="{DynamicResource BorderBrushColor}"
-                     StrokeThickness="2"
-                     Fill="Transparent"/>
-            <Ellipse Width="2" Height="2"
-                     Fill="{DynamicResource PrimaryForegroundBrush}"
-                     Canvas.Left="9" Canvas.Top="4"/>
-            <Rectangle Width="2" Height="8"
-                       Fill="{DynamicResource PrimaryForegroundBrush}"
-                       Canvas.Left="9" Canvas.Top="8"/>
-            <Canvas.ToolTip>
-                <ToolTip Background="{DynamicResource PopupBackgroundBrush}"
-                         Foreground="{DynamicResource PopupForegroundBrush}">
-                    <Border Padding="8" Background="{DynamicResource PopupBackgroundBrush}" CornerRadius="4">
-                        <StackPanel MaxWidth="300">
-                            <!-- Step 1 -->
-                            <TextBlock Text="Step 1: Open the New Ticket Dialog"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="In the main windows top toolbar, click New Ticket."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="A modal Project Detail window will pop up."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
+            <ListBox.GroupStyle>
+              <GroupStyle>
+                <GroupStyle.HeaderTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource PrimaryForegroundBrush}" Margin="6,6,0,3"/>
+                  </DataTemplate>
+                </GroupStyle.HeaderTemplate>
+              </GroupStyle>
+            </ListBox.GroupStyle>
+          </ListBox>
+        </Border>
 
-                            <!-- Step 2 -->
-                            <TextBlock Text="Step 2: Fill in the Basic Ticket Info"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="Number auto-generated for you (no need to edit)."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Name enter a short, descriptive title for the ticket."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Status choose Not Started, Ongoing, or Complete."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Subject (optional) a one-line summary field."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Step 3 -->
-                            <TextBlock Text="Step 3: (Optional) Add Work Log Entries"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="In the bottom half of the dialog, under Log Entries, type a description of what you did."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Enter a duration of time it took."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Click Add Entry."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Repeat for each additional log entry."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Step 4 -->
-                            <TextBlock Text="Step 4: Save Your New Ticket"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="Click Save."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="The dialog closes and your new ticket appears immediately in the main grid."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Step 5 -->
-                            <TextBlock Text="Step 5: Verify and Refresh"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="The list auto-refreshes every few seconds."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Or click Refresh in the toolbar to see it right away."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Step 6 -->
-                            <TextBlock Text="Step 6: Find or Filter"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="Use the Search box to jump to tickets by name or number."
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,0"/>
-                            <TextBlock Text="Use the Date Range drop-down to narrow the list"
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,8"/>
-
-                            <!-- Credit line -->
-                            <TextBlock Text="Created by SrA Robichaud, Cannon"
-                                       FontStyle="Italic"
-                                       TextAlignment="Right"
-                                       Margin="0,8,0,0"/>
-                        </StackPanel>
-                    </Border>
-                </ToolTip>
-            </Canvas.ToolTip>
-        </Canvas>
+        <!-- Right To-Dos panel (static placeholders; optional to wire later) -->
+        <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="4" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1" Padding="10" Background="{DynamicResource ContentBackgroundBrush}">
+          <StackPanel>
+            <TextBlock Text="To-Dos" FontWeight="Bold" Margin="0,0,0,8"/>
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+              <CheckBox Margin="0,0,6,0"/>
+              <TextBlock Text="Nulla porta, justo ac ullamcorper aliquam..." TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+              <CheckBox Margin="0,0,6,0"/>
+              <TextBlock Text="Nunc finibus nibh non sem dignissim..." TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,2">
+              <CheckBox Margin="0,0,6,0"/>
+              <TextBlock Text="Pellentesque dictum ac mi..." TextWrapping="Wrap"/>
+            </StackPanel>
+            <TextBox Height="28" Margin="0,8,0,0" Padding="4" Text="Add To do" Foreground="{DynamicResource PlaceholderBrush}"/>
+          </StackPanel>
+        </Border>
+      </Grid>
     </Grid>
+  </Grid>
 </Window>
 '@
+
 # ───────────────────────────────────────────────────────────────────
 # EMBEDDED ProjectDetailWindow XAML
 # ───────────────────────────────────────────────────────────────────
